@@ -1,206 +1,86 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Smart Heat Monitoring System</title>
-
-    <!-- QR Code Scanning Engine -->
-    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
-
-    <style>
-        :root {
-            --bg-color: #0f172a;
-            --card-bg: #1e293b;
-            --text-main: #f8fafc;
-            --text-muted: #94a3b8;
-            --accent-blue: #38bdf8;
-            --danger: #ef4444;
-            --warning: #f59e0b;
-            --success: #10b981;
-            --border-color: #334155;
-        }
-
-        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-        body { background: var(--bg-color); color: var(--text-main); min-height: 100vh; display: flex; justify-content: center; align-items: flex-start; padding: 20px; }
-        .container { width: 100%; max-width: 500px; }
-
-        .card { background: var(--card-bg); border-radius: 12px; border: 1px solid var(--border-color); padding: 24px; margin-bottom: 20px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.3); }
-        h1, h2, h3 { font-weight: 700; margin-bottom: 12px; text-align: center; }
-        p.subtitle { color: var(--text-muted); font-size: 0.9rem; text-align: center; margin-bottom: 20px; }
-
-        .auth-toggle { display: flex; margin-bottom: 20px; border-radius: 8px; overflow: hidden; border: 1px solid var(--border-color); }
-        .auth-toggle button { flex: 1; padding: 10px; background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-weight: 600; transition: 0.3s;}
-        .auth-toggle button.active { background: var(--accent-blue); color: #000; }
-
-        input { width: 100%; padding: 12px; margin-bottom: 12px; border-radius: 8px; border: 1px solid var(--border-color); background: #0f172a; color: #fff; font-size: 1rem; }
-        input:focus { outline: 2px solid var(--accent-blue); }
-
-        .btn { width: 100%; padding: 12px; border: none; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer; transition: 0.2s; }
-        .btn-primary { background: var(--accent-blue); color: #000; }
-        .btn-primary:hover { background: #0284c7; }
-        .btn-danger { background: var(--danger); color: #fff; }
-        .btn-secondary { background: #334155; color: #fff; }
-        .btn-ok { background: var(--success); color: #000; }
-        .btn-group { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
-
-        .device-card { background: #182234; border-radius: 10px; border-left: 6px solid var(--success); padding: 16px; margin-bottom: 16px; transition: 0.3s; }
-        .device-card.warning { border-left-color: var(--warning); }
-        .device-card.emergency { border-left-color: var(--danger); }
-
-        .device-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-        .device-title { font-weight: 700; font-size: 1.1rem; color: var(--accent-blue); margin-bottom: 4px;}
-        .device-mac { font-size: 0.75rem; color: var(--text-muted); display: block; }
-        .device-badge { padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; background: #334155; }
-
-        .badge-normal { background: var(--success); color: #000;}
-        .badge-warning { background: var(--warning); color: #000;}
-        .badge-danger { background: var(--danger); color: #fff;}
-
-        .metric-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 0.9rem; }
-        .metric-item { background: #0f172a; padding: 8px 12px; border-radius: 6px; }
-        .metric-label { color: var(--text-muted); font-size: 0.75rem; display: block; margin-bottom: 2px; }
-        .metric-val { font-weight: 600; font-size: 1.05rem; }
-
-        /* Emergency contact row */
-        .contact-row { display: flex; justify-content: space-between; align-items: center; background: #0f172a; padding: 8px 12px; border-radius: 6px; margin-top: 10px; font-size: 0.85rem; }
-        .contact-row .metric-label { margin-bottom: 0; }
-        .link-btn { background: none; border: none; color: var(--accent-blue); cursor: pointer; font-size: 0.8rem; font-weight: 600; }
-
-        /* Emergency alert box with countdown */
-        .alert-box { display: none; margin-top: 12px; padding: 14px; border-radius: 8px; text-align: center; border: 2px solid var(--danger); background: rgba(239,68,68,0.12); }
-        .alert-box.calm { border-color: var(--border-color); background: #0f172a; }
-        .alert-box.done { border-color: var(--success); background: rgba(16,185,129,0.1); }
-        .alert-title { font-weight: 800; color: var(--danger); margin-bottom: 6px; }
-        .alert-box.calm .alert-title { color: var(--text-muted); }
-        .alert-box.done .alert-title { color: var(--success); }
-        .alert-text { font-size: 0.85rem; color: var(--text-main); margin-bottom: 10px; }
-        .countdown { font-size: 2.4rem; font-weight: 800; color: var(--danger); line-height: 1; margin-bottom: 8px; }
-        .alert-box.pulse { animation: pulse 1s infinite; }
-        @keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.5);} 50% { box-shadow: 0 0 0 8px rgba(239,68,68,0);} }
-
-        .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 1000; padding: 20px; overflow-y: auto; }
-        .modal-box { max-width: 400px; margin: 40px auto auto auto; background: var(--card-bg); padding: 24px; border-radius: 12px; text-align: center; border: 1px solid var(--border-color); }
-        #reader { width: 100%; border-radius: 8px; overflow: hidden; margin-bottom: 12px; background: #000;}
-        .hint { font-size: 0.75rem; color: var(--text-muted); margin: -4px 0 12px; text-align: left; }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Heat & Fall Monitoring</title>
+  <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+  <style>
+    :root{--bg:#0f172a;--card:#1e293b;--text:#f8fafc;--muted:#94a3b8;--blue:#38bdf8;--danger:#ef4444;--warn:#f59e0b;--ok:#10b981;--border:#334155}
+    *{box-sizing:border-box;margin:0;padding:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+    body{background:var(--bg);color:var(--text);min-height:100vh;display:flex;justify-content:center;align-items:flex-start;padding:20px}
+    .container{width:100%;max-width:560px}.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:22px;margin-bottom:18px;box-shadow:0 10px 20px #0003}
+    h1,h2,h3{font-weight:750;margin-bottom:12px}h2{text-align:center}p.subtitle{text-align:center;color:var(--muted);font-size:.9rem;margin-bottom:20px}
+    .auth-toggle,.btn-group{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:14px}.auth-toggle{border:1px solid var(--border);border-radius:8px;overflow:hidden;gap:0}
+    input{width:100%;padding:12px;margin-bottom:11px;border-radius:8px;border:1px solid var(--border);background:#0f172a;color:#fff;font-size:1rem}input:focus{outline:2px solid var(--blue)}
+    button,.btn{display:inline-block;border:0;border-radius:8px;padding:11px 12px;font-size:.95rem;font-weight:650;cursor:pointer;text-align:center}.btn{width:100%}.btn-primary{background:var(--blue);color:#00111b}.btn-danger{background:var(--danger);color:white}.btn-secondary{background:#334155;color:white}.btn-ok{background:var(--ok);color:#00180f}.auth-toggle button{border-radius:0;background:transparent;color:var(--muted)}.auth-toggle button.active{background:var(--blue);color:#00111b}
+    .device-card{background:#182234;border-radius:10px;border-left:6px solid var(--ok);padding:15px;margin:15px 0}.device-card.warning{border-left-color:var(--warn)}.device-card.emergency{border-left-color:var(--danger)}
+    .device-header{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:13px}.device-title{font-weight:750;font-size:1.1rem;color:var(--blue);overflow-wrap:anywhere}.device-mac{font-size:.75rem;color:var(--muted);display:block;margin-top:3px}.device-badge{padding:4px 8px;border-radius:5px;font-size:.72rem;font-weight:750;background:#334155;display:inline-block;margin-top:8px}.badge-normal{background:var(--ok);color:#00180f}.badge-warning{background:var(--warn);color:#1b1000}.badge-danger{background:var(--danger);color:white}
+    .metric-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px;font-size:.9rem}.metric-item{background:#0f172a;padding:10px;border-radius:6px;min-width:0}.metric-label{color:var(--muted);font-size:.74rem;display:block;margin-bottom:3px}.metric-val{font-weight:700;font-size:1rem;overflow-wrap:anywhere}.contact-row{display:flex;justify-content:space-between;align-items:center;gap:10px;background:#0f172a;padding:10px 12px;border-radius:6px;margin-top:10px;font-size:.85rem}.link-btn{background:none;border:0;color:var(--blue);cursor:pointer;font-size:.82rem;font-weight:700;padding:4px}
+    .alert-box{display:none;margin-top:12px;padding:14px;border-radius:8px;text-align:center;border:2px solid var(--danger);background:#ef44441b}.alert-box.calm{border-color:var(--border);background:#0f172a}.alert-box.done{border-color:var(--ok);background:#10b98116}.alert-title{font-weight:850;color:var(--danger);margin-bottom:7px}.alert-box.calm .alert-title{color:var(--muted)}.alert-box.done .alert-title{color:var(--ok)}.alert-text{font-size:.86rem;margin-bottom:7px}.countdown{font-size:2.4rem;font-weight:850;color:var(--danger);line-height:1.1;margin:8px 0}.alert-box.pulse{animation:pulse 1s infinite}@keyframes pulse{0%,100%{box-shadow:0 0 0 0 #ef444480}50%{box-shadow:0 0 0 8px #ef444400}}
+    .modal-overlay{display:none;position:fixed;inset:0;background:#000d;z-index:1000;padding:18px;overflow-y:auto}.modal-box{max-width:420px;margin:35px auto;background:var(--card);padding:22px;border-radius:12px;border:1px solid var(--border);text-align:center}#reader{width:100%;border-radius:8px;overflow:hidden;margin-bottom:12px;background:#000}.hint{font-size:.76rem;color:var(--muted);margin:-3px 0 12px;text-align:left}.small-muted{color:var(--muted);font-size:.8rem;line-height:1.45}.topbar{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:15px}.topbar h2{text-align:left;margin:0}.empty{text-align:center;color:var(--muted);font-size:.9rem;padding:14px 4px}
+    @media(max-width:380px){body{padding:10px}.card{padding:15px}.metric-grid{gap:6px}.metric-item{padding:8px}}
+  </style>
 </head>
-
 <body>
-
 <div class="container">
-
-    <!-- AUTHENTICATION SCREEN -->
-    <div id="auth-screen" class="card">
-        <h2>Smart Heat Protection</h2>
-        <p class="subtitle">Real-time Multi-Device Stroke Prevention</p>
-
-        <div class="auth-toggle">
-            <button id="tab-login" class="active" onclick="switchAuthTab('login')">Sign In</button>
-            <button id="tab-signup" onclick="switchAuthTab('signup')">Sign Up</button>
-        </div>
-
-        <input type="email" id="auth-email" placeholder="Email Address">
-        <input type="password" id="auth-password" placeholder="Password (Min. 6 chars)">
-
-        <button id="btn-auth-submit" class="btn btn-primary" onclick="handleAuth()">Sign In</button>
+  <section id="auth-screen" class="card">
+    <h2>Smart Heat Protection</h2>
+    <p class="subtitle">Real-time heat and fall monitoring</p>
+    <div class="auth-toggle">
+      <button id="tab-login" class="active" onclick="switchAuthTab('login')">Sign In</button>
+      <button id="tab-signup" onclick="switchAuthTab('signup')">Sign Up</button>
     </div>
+    <input type="email" id="auth-email" placeholder="Email address" autocomplete="username">
+    <input type="password" id="auth-password" placeholder="Password (minimum 6 characters)" autocomplete="current-password">
+    <button id="btn-auth-submit" class="btn btn-primary" onclick="handleAuth()">Sign In</button>
+    <p class="small-muted" style="margin-top:12px">Sign in to view devices linked to your account.</p>
+  </section>
 
-
-    <!-- MAIN MONITORING DASHBOARD -->
-    <div id="dashboard-screen" style="display: none;">
-        <div class="card">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                <div>
-                    <h2 style="text-align: left; margin: 0;">My Monitors</h2>
-                    <span id="user-email-display" style="font-size: 0.8rem; color: var(--text-muted);"></span>
-                </div>
-                <button class="btn btn-danger" style="width: auto; padding: 6px 12px;" onclick="signOutUser()">Log Out</button>
-            </div>
-
-            <div class="btn-group">
-                <button class="btn btn-primary" onclick="openScanner()">📷 Scan QR</button>
-                <button class="btn btn-secondary" onclick="openManualModal()">⌨️ Enter MAC</button>
-            </div>
-
-            <div id="device-container"></div>
-        </div>
+  <section id="dashboard-screen" style="display:none">
+    <div class="card">
+      <div class="topbar">
+        <div><h2>My Monitors</h2><span id="user-email-display" class="small-muted"></span></div>
+        <button class="btn btn-danger" style="width:auto" onclick="signOutUser()">Log Out</button>
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-primary" onclick="openScanner()">📷 Scan QR</button>
+        <button class="btn btn-secondary" onclick="openManualModal()">⌨️ Enter MAC</button>
+      </div>
+      <p class="small-muted" style="margin-bottom:12px">When a fall is detected, the device buzzer sounds and a 15-second SMS countdown begins. Press the physical button connected to GPIO4 on the ESP32-C6 within that window to cancel the SMS. There is no website cancel button.</p>
+      <div id="device-container"></div>
     </div>
-
+  </section>
 </div>
 
+<div id="manual-modal" class="modal-overlay"><div class="modal-box">
+  <h3>Add Device Manually</h3>
+  <input type="text" id="manual-mac" placeholder="MAC address (e.g. AA:BB:CC:DD:EE:FF)">
+  <input type="text" id="manual-name" placeholder="Wearer's name">
+  <input type="tel" id="manual-contact" placeholder="Emergency contact (e.g. 9876543210)">
+  <p class="hint">10-digit Indian mobile numbers are treated as +91.</p>
+  <div class="btn-group"><button class="btn btn-primary" onclick="submitManual()">Save Device</button><button class="btn btn-danger" onclick="closeModal('manual-modal')">Cancel</button></div>
+</div></div>
 
-<!-- 1. MANUAL ENTRY MODAL -->
-<div id="manual-modal" class="modal-overlay">
-    <div class="modal-box">
-        <h3 style="margin-bottom: 16px;">Add Device Manually</h3>
+<div id="scanner-modal" class="modal-overlay"><div class="modal-box">
+  <h3>Scan Device QR Code</h3><p class="small-muted" style="margin-bottom:10px">Point the camera at the ESP32 device QR code.</p>
+  <div id="reader"></div><button class="btn btn-danger" onclick="closeScanner()">Close Scanner</button>
+</div></div>
 
-        <input type="text" id="manual-mac" placeholder="MAC Address (e.g. 24:6F:28:XX:XX:XX)">
-        <input type="text" id="manual-name" placeholder="Wearer's Name (e.g. Grandpa)">
-        <input type="tel" id="manual-contact" placeholder="Emergency Contact No. (e.g. 9876543210)">
-        <p class="hint">SMS goes to this number if an emergency isn't cancelled within 15 seconds. 10-digit numbers are treated as +91.</p>
+<div id="qr-name-modal" class="modal-overlay"><div class="modal-box">
+  <h3>Device Found</h3><p id="scanned-mac-display" style="color:var(--blue);font-weight:750;margin-bottom:12px;overflow-wrap:anywhere"></p>
+  <input type="text" id="qr-name" placeholder="Wearer's name"><input type="tel" id="qr-contact" placeholder="Emergency contact (e.g. 9876543210)">
+  <p class="hint">10-digit Indian mobile numbers are treated as +91.</p>
+  <div class="btn-group"><button class="btn btn-primary" onclick="submitQRName()">Link Device</button><button class="btn btn-danger" onclick="closeModal('qr-name-modal')">Cancel</button></div>
+</div></div>
 
-        <div class="btn-group" style="margin-top: 10px;">
-            <button class="btn btn-primary" onclick="submitManual()">Save Device</button>
-            <button class="btn btn-danger" onclick="closeModal('manual-modal')">Cancel</button>
-        </div>
-    </div>
-</div>
-
-
-<!-- 2. QR SCANNER MODAL -->
-<div id="scanner-modal" class="modal-overlay">
-    <div class="modal-box">
-        <h3 style="margin-bottom: 12px;">Scan QR Code</h3>
-        <p style="font-size: 0.85rem; color: #94a3b8; margin-bottom: 10px;">Point camera at the ESP32 QR code.</p>
-        <div id="reader"></div>
-        <button class="btn btn-danger" onclick="closeScanner()">Cancel</button>
-    </div>
-</div>
-
-
-<!-- 3. NAME ASSIGNMENT MODAL -->
-<div id="qr-name-modal" class="modal-overlay">
-    <div class="modal-box">
-        <h3 style="margin-bottom: 12px;">Device Found!</h3>
-        <p id="scanned-mac-display" style="color: var(--accent-blue); font-weight: bold; margin-bottom: 16px;"></p>
-
-        <input type="text" id="qr-name" placeholder="Enter Wearer's Name">
-        <input type="tel" id="qr-contact" placeholder="Emergency Contact No. (e.g. 9876543210)">
-        <p class="hint">SMS goes to this number if an emergency isn't cancelled within 15 seconds.</p>
-
-        <div class="btn-group" style="margin-top: 10px;">
-            <button class="btn btn-primary" onclick="submitQRName()">Link Device</button>
-            <button class="btn btn-danger" onclick="closeModal('qr-name-modal')">Cancel</button>
-        </div>
-    </div>
-</div>
-
-
-<!-- FIREBASE SDK & LOGIC -->
 <script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
+  import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
+  import { getDatabase, ref, onValue, set, update, get, remove } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
 
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
-
-    import {
-        getAuth,
-        signInWithEmailAndPassword,
-        createUserWithEmailAndPassword,
-        onAuthStateChanged,
-        signOut
-    } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
-
-    import {
-        getDatabase,
-        ref,
-        onValue,
-        set,
-        push,
-        remove
-    } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
-
-
-    const firebaseConfig = {
+  // This matches the LAST Firebase config supplied in the request.
+ const firebaseConfig = {
   apiKey: "AIzaSyBZJPFSx8UGou1eqqm0HxrnLaVhOqCm1TA",
   authDomain: "sunstroke-detection.firebaseapp.com",
   databaseURL: "https://sunstroke-detection-default-rtdb.asia-southeast1.firebasedatabase.app",
@@ -209,850 +89,527 @@
   messagingSenderId: "180187522726",
   appId: "1:180187522726:web:fa46e04682d135f89d7667"
 };
-    
-    
 
+  // DEMO ONLY: rotate the Fast2SMS key previously pasted into chat and paste the NEW key here.
+  // A browser-based key is visible to visitors. Production use should call a secured backend.
+  const FAST2SMS_API_KEY = "zcBRKji2aotU8Px5y6ebLDuZpCQ1AskgSh9rMTlvXqOV7GYndISIplyOJW1FHU7jkQwfM8BrvXGx65qa";
+  const FAST2SMS_URL = "https://www.fast2sms.com/dev/bulkV2";
+  const ALERT_COUNTDOWN_MS = 15000;
+  const DEFAULT_COUNTRY_CODE = "+91";
+  const STALE_THRESHOLD_MS = 30000;
 
-    const app = initializeApp(firebaseConfig);
-    const auth = getAuth(app);
-    const db = getDatabase(app);
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getDatabase(app);
 
-    // ============================================================
-    // SETTINGS
-    // ============================================================
-    const ALERT_COUNTDOWN_SEC = 15;        // time the wearer/caregiver has to cancel
-    const DEFAULT_COUNTRY_CODE = "+91";    // used when a 10-digit number is entered
-    const STALE_THRESHOLD_MS = 30000;      // device considered offline after 30s of silence
+  let currentMode = "login";
+  let currentUser = null;
+  let html5QrScanner = null;
+  let tempScannedMac = "";
+  let knownDeviceMacs = [];
+  let isDatabaseConnected = true;
+  let unsubDevices = null;
+  const deviceMeta = {};
+  const lastData = {};
+  const deviceLastSeenAt = {};
+  const telemetryUnsubs = {};
+  const alertState = {};
+  const lastHandledFallEventId = {}; // separates persistent fall IDs from heat-alert state
 
-    // Fast2SMS (https://www.fast2sms.com) - Quick SMS route.
-    // WARNING: anything in this file is public once pushed to GitHub Pages.
-    const FAST2SMS_API_KEY = "zcBRKji2aotU8Px5y6ebLDuZpCQ1AskgSh9rMTlvXqOV7GYndISIplyOJW1FHU7jkQwfM8BrvXGx65qa";
-    const FAST2SMS_ROUTE = "q";
-
-    let currentMode = "login";
-    let currentUser = null;
-    let html5QrScanner = null;
-    let tempScannedMac = "";
-    let knownDeviceMacs = [];
-    let isBrowserOnline = true;
-
-    const deviceMeta = {};            // mac -> { name, contact }
-    const lastData = {};              // mac -> latest telemetry
-    const deviceLastUpdated = {};     // mac -> last data.lastUpdated (ms)
-    const deviceHasTimestamp = {};    // mac -> true once lastUpdated seen
-    const telemetryUnsubs = {};       // mac -> unsubscribe fn (prevents duplicate listeners)
-    let unsubDevices = null;
-
-    // Alert state per device:
-    // status: idle | counting | cancelled | nocontact | sending | sent | failed
-    const alertState = {};
-
-
-    // ============================================================
-    // HELPERS
-    // ============================================================
-
-    const safeIdOf = (mac) => mac.replace(/[^a-zA-Z0-9]/g, "");
-
-    function esc(str) {
-        return String(str ?? "").replace(/[&<>"']/g, (c) => (
-            { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
-        ));
+  const safeIdOf = mac => String(mac).replace(/[^a-zA-Z0-9]/g, "");
+  function esc(value) {
+    return String(value ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
+  }
+  function normalizePhone(raw) {
+    let p = String(raw || "").replace(/[\s\-().]/g, "");
+    if (/^\d{10}$/.test(p)) p = DEFAULT_COUNTRY_CODE + p;
+    else if (/^0\d{10}$/.test(p)) p = DEFAULT_COUNTRY_CODE + p.slice(1);
+    else if (/^\d{11,15}$/.test(p)) p = "+" + p;
+    return /^\+\d{8,15}$/.test(p) ? p : null;
+  }
+  function isHeatstrokeEmergency(data) {
+    const t = Number(data?.temperature) || 0;
+    const hr = Number(data?.heartRate) || 0;
+    return t >= 38.5 && hr >= 120;
+  }
+  function emergencyReason(data) {
+    const parts = [];
+    if (isHeatstrokeEmergency(data)) parts.push("possible sunstroke (high temperature and heart rate)");
+    if (data?.fallEventId) parts.push("fall detected");
+    return parts.join(" + ") || "emergency";
+  }
+  function buildSmsText(mac, data = lastData[mac] || {}) {
+    const meta = deviceMeta[mac] || {};
+    const t = (Number(data.temperature) || 0).toFixed(1);
+    const hr = Number(data.heartRate) || 0;
+    let loc = "location unavailable";
+    if (data.location && Number(data.location.lat) !== 0 && Number(data.location.lng) !== 0) {
+      loc = `https://maps.google.com/?q=${Number(data.location.lat)},${Number(data.location.lng)}`;
     }
+    return `EMERGENCY: ${meta.name || "Wearer"} - ${emergencyReason(data)}. Temp ${t}C, HR ${hr} BPM. Location: ${loc}. Please respond immediately.`;
+  }
 
-    // Returns E.164 number (+919876543210) or null if invalid
-    function normalizePhone(raw) {
-        let p = String(raw || "").replace(/[\s\-().]/g, "");
-        if (/^\d{10}$/.test(p)) p = DEFAULT_COUNTRY_CODE + p;
-        else if (/^0\d{10}$/.test(p)) p = DEFAULT_COUNTRY_CODE + p.slice(1);
-        else if (/^\d{11,15}$/.test(p)) p = "+" + p;
-        return /^\+\d{8,15}$/.test(p) ? p : null;
+  onAuthStateChanged(auth, user => {
+    currentUser = user;
+    if (user) {
+      document.getElementById("auth-screen").style.display = "none";
+      document.getElementById("dashboard-screen").style.display = "block";
+      document.getElementById("user-email-display").innerText = user.email || "Signed in";
+      attachUserDeviceListeners(user.uid);
+    } else {
+      document.getElementById("auth-screen").style.display = "block";
+      document.getElementById("dashboard-screen").style.display = "none";
+      document.getElementById("device-container").innerHTML = "";
+      teardownListeners();
     }
+  });
 
-    function isEmergency(data) {
-        if (!data) return false;
-        const t = Number(data.temperature) || 0;
-        const hr = Number(data.heartRate) || 0;
-        return (t >= 38.5 && hr >= 120) || !!data.fallDetected;
-    }
+  window.handleAuth = () => {
+    const email = document.getElementById("auth-email").value.trim();
+    const pass = document.getElementById("auth-password").value;
+    if (!email || !pass) return alert("Please enter both email and password.");
+    if (currentMode === "login") signInWithEmailAndPassword(auth, email, pass).catch(err => alert("Sign-in failed: " + err.message));
+    else createUserWithEmailAndPassword(auth, email, pass).then(() => alert("Account created.")).catch(err => alert("Sign-up failed: " + err.message));
+  };
+  window.switchAuthTab = mode => {
+    currentMode = mode;
+    document.getElementById("tab-login").className = mode === "login" ? "active" : "";
+    document.getElementById("tab-signup").className = mode === "signup" ? "active" : "";
+    document.getElementById("btn-auth-submit").innerText = mode === "login" ? "Sign In" : "Sign Up";
+  };
+  window.signOutUser = () => signOut(auth);
 
-    function emergencyReason(data) {
-        const t = Number(data.temperature) || 0;
-        const hr = Number(data.heartRate) || 0;
-        const parts = [];
-        if (t >= 38.5 && hr >= 120) parts.push("possible SUNSTROKE");
-        if (data.fallDetected) parts.push("FALL detected");
-        return parts.join(" + ");
-    }
+  function teardownListeners() {
+    if (unsubDevices) { unsubDevices(); unsubDevices = null; }
+    Object.keys(telemetryUnsubs).forEach(mac => { telemetryUnsubs[mac](); delete telemetryUnsubs[mac]; });
+    Object.keys(alertState).forEach(mac => delete alertState[mac]);
+    knownDeviceMacs = [];
+  }
 
-    function buildSmsText(mac) {
-        const meta = deviceMeta[mac] || {};
-        const d = lastData[mac] || {};
-        const t = (Number(d.temperature) || 0).toFixed(1);
-        const hr = Number(d.heartRate) || 0;
-        let loc = "location unavailable";
-        if (d.location && Number(d.location.lat) !== 0 && Number(d.location.lng) !== 0) {
-            loc = `https://maps.google.com/?q=${d.location.lat},${d.location.lng}`;
+  onValue(ref(db, ".info/connected"), snap => {
+    isDatabaseConnected = snap.val() === true;
+    if (!isDatabaseConnected) {
+      knownDeviceMacs.forEach(mac => {
+        const st = alertState[mac];
+        if (st && (st.status === "counting" || st.status === "checking")) {
+          st.status = "stale";
+          st.rendered = null;
+          updateAlertUI(mac);
         }
-        return `EMERGENCY: ${meta.name || "Wearer"} - ${emergencyReason(d) || "alert"}. ` +
-               `Temp ${t}C, HR ${hr} BPM. Location: ${loc}. Please respond immediately.`;
+      });
     }
+  });
 
-
-    // ============================================================
-    // AUTHENTICATION LOGIC
-    // ============================================================
-
-    onAuthStateChanged(auth, (user) => {
-
-        currentUser = user;
-
-        if (user) {
-            document.getElementById("auth-screen").style.display = "none";
-            document.getElementById("dashboard-screen").style.display = "block";
-            document.getElementById("user-email-display").innerText = user.email;
-            attachUserDeviceListeners(user.uid);
-        } else {
-            document.getElementById("auth-screen").style.display = "block";
-            document.getElementById("dashboard-screen").style.display = "none";
-            document.getElementById("device-container").innerHTML = "";
-            teardownListeners();
+  setInterval(() => {
+    const now = Date.now();
+    knownDeviceMacs.forEach(mac => {
+      if (!deviceLastSeenAt[mac]) return;
+      if (now - deviceLastSeenAt[mac] > STALE_THRESHOLD_MS) {
+        const id = safeIdOf(mac);
+        const card = document.getElementById(`card-${id}`);
+        const badge = document.getElementById(`risk-${id}`);
+        if (card && badge) blankDeviceCard(mac, card, badge, "NO SIGNAL");
+        const st = alertState[mac];
+        if (st && (st.status === "counting" || st.status === "checking")) {
+          st.status = "stale";
+          st.rendered = null;
+          updateAlertUI(mac);
         }
-
+      }
     });
+  }, 5000);
 
+  function blankDeviceCard(mac, card, riskBadge, statusText) {
+    const id = safeIdOf(mac);
+    const assign = (suffix, value) => { const el = document.getElementById(`${suffix}-${id}`); if (el) el.innerText = value; };
+    assign("temp", "0.0 °C"); assign("hr", "0 BPM"); assign("sunstroke", "No"); assign("fall", "NO"); assign("gps", "Location unavailable");
+    riskBadge.innerText = statusText;
+    riskBadge.className = "device-badge";
+    card.className = "device-card";
+  }
 
-    window.handleAuth = () => {
+  function resetAlert(mac) {
+    alertState[mac] = { status: "idle", rendered: null, eventId: "", type: "" };
+    updateAlertUI(mac);
+  }
+  function startAlertCountdown(mac, type, eventId, ageMs = 0) {
+    const st = alertState[mac] || (alertState[mac] = { status: "idle", rendered: null, eventId: "", type: "" });
+    st.type = type;
+    st.eventId = eventId || "";
+    st.error = "";
+    st.rendered = null;
+    const meta = deviceMeta[mac] || {};
+    if (!meta.contact) {
+      st.status = "nocontact";
+    } else {
+      st.status = "counting";
+      // +500 ms cushions for integer-second device timestamps and delivery jitter.
+      st.deadline = Date.now() + Math.max(0, ALERT_COUNTDOWN_MS - Math.max(0, ageMs) + 500);
+    }
+    updateAlertUI(mac);
+  }
 
-        const email = document.getElementById("auth-email").value.trim();
-        const pass = document.getElementById("auth-password").value;
+  function evaluateEmergency(mac, data) {
+    const st = alertState[mac] || (alertState[mac] = { status: "idle", rendered: null, eventId: "", type: "", suppressHeatUntilCleared: false });
+    const fallId = String(data.fallEventId || "");
+    const cancelledId = String(data.fallCancelledEventId || "");
+    const heatEmergency = isHeatstrokeEmergency(data);
 
-        if (!email || !pass)
-            return alert("Please fill in both email and password.");
-
-        if (currentMode === "login") {
-            signInWithEmailAndPassword(auth, email, pass)
-                .catch((err) => alert("Sign In Failed: " + err.message));
-        } else {
-            createUserWithEmailAndPassword(auth, email, pass)
-                .then(() => alert("Account created!"))
-                .catch((err) => alert("Sign Up Failed: " + err.message));
+    // A physical GPIO4 cancellation suppresses this fall event. If an alert is
+    // currently counting, cancel it; no website cancel button is used.
+    if (fallId && cancelledId === fallId) {
+      const newlyObservedCancellation = lastHandledFallEventId[mac] !== fallId;
+      const sameFallCountdownPending = st.type === "fall" && st.eventId === fallId &&
+        ["counting", "checking", "nocontact"].includes(st.status);
+      if (newlyObservedCancellation || sameFallCountdownPending) {
+        lastHandledFallEventId[mac] = fallId;
+        if (st.status !== "sent") {
+          st.type = "fall";
+          st.eventId = fallId;
+          st.status = "cancelled";
+          st.suppressHeatUntilCleared = heatEmergency;
+          st.rendered = null;
+          updateAlertUI(mac);
         }
+      } else if (!heatEmergency) {
+        st.suppressHeatUntilCleared = false;
+      }
+      if (heatEmergency && st.suppressHeatUntilCleared) return;
+      // Don't re-open the same cancelled fall event; the ID remains in RTDB.
+    }
 
-    };
+    // Handle only a previously unseen fall event. Keeping this tracker separate
+    // from the active heat-alert state prevents an old fallEventId in RTDB from
+    // restarting the fall countdown every time temperature telemetry changes.
+    if (fallId && cancelledId !== fallId && fallId !== lastHandledFallEventId[mac]) {
+      lastHandledFallEventId[mac] = fallId;
+      if (String(data.lastSmsEventId || "") === fallId) {
+        st.type = "fall"; st.eventId = fallId; st.status = "sent"; st.rendered = null; updateAlertUI(mac);
+        return;
+      }
+      const startedAt = Number(data.fallStartedAt);
+      const updatedAt = Number(data.lastUpdated);
+      const ageMs = Number.isFinite(startedAt) && Number.isFinite(updatedAt) ? Math.max(0, updatedAt - startedAt) * 1000 : 0;
+      st.suppressHeatUntilCleared = false;
+      startAlertCountdown(mac, "fall", fallId, ageMs);
+      return;
+    }
 
+    // The current fall countdown is owned by that event ID; subsequent telemetry
+    // must not reset its deadline or turn it into a heat countdown.
+    if (fallId && st.eventId === fallId && st.type === "fall" &&
+        ["counting", "checking", "nocontact", "sending"].includes(st.status)) return;
 
-    window.switchAuthTab = (mode) => {
-        currentMode = mode;
-        document.getElementById("tab-login").className = (mode === 'login') ? 'active' : '';
-        document.getElementById("tab-signup").className = (mode === 'signup') ? 'active' : '';
-        document.getElementById("btn-auth-submit").innerText = (mode === 'login') ? 'Sign In' : 'Sign Up';
-    };
+    // Keep the existing temperature + high-heart-rate emergency pathway.
+    if (heatEmergency && !st.suppressHeatUntilCleared) {
+      if (st.type !== "heat" || ["idle", "stale", "cancelled", "sent", "failed"].includes(st.status)) {
+        startAlertCountdown(mac, "heat", `heat-${Date.now()}`, 0);
+      }
+    } else if (!heatEmergency) {
+      if (st.suppressHeatUntilCleared) st.suppressHeatUntilCleared = false;
+      if (st.type === "heat" && st.status !== "sending" && st.status !== "checking") resetAlert(mac);
+    }
+  }
 
+  async function confirmThenSendSms(mac) {
+    const st = alertState[mac];
+    if (!st || st.status !== "counting") return;
+    const expectedEventId = st.type === "fall" ? st.eventId : "";
+    st.status = "checking";
+    st.rendered = null;
+    updateAlertUI(mac);
 
-    window.signOutUser = () => signOut(auth);
+    try {
+      // Briefly allow a final GPIO4 cancellation write to reach RTDB, then re-read.
+      await new Promise(resolve => setTimeout(resolve, 800));
+      // Re-read latest Firebase values at the end of the countdown to catch a
+      // physical GPIO4 cancellation that arrived just before the deadline.
+      const snap = await get(ref(db, `Devices/${mac}`));
+      const latest = snap.val();
+      if (!latest) throw new Error("No current device data in Firebase.");
+      // A cancellation listener may have updated this state while get() was in flight.
+      if (alertState[mac] !== st || st.status !== "checking") return;
 
+      if (expectedEventId) {
+        const latestEventId = String(latest.fallEventId || "");
+        const latestCancelledId = String(latest.fallCancelledEventId || "");
+        if (latestCancelledId === expectedEventId) {
+          st.status = "cancelled"; st.rendered = null; updateAlertUI(mac); return;
+        }
+        if (latestEventId !== expectedEventId) {
+          st.status = "stale"; st.rendered = null; updateAlertUI(mac); return;
+        }
+        if (String(latest.lastSmsEventId || "") === expectedEventId) {
+          st.status = "sent"; st.rendered = null; updateAlertUI(mac); return;
+        }
+      } else if (!isHeatstrokeEmergency(latest)) {
+        st.status = "cancelled"; st.rendered = null; updateAlertUI(mac); return;
+      }
 
-    function teardownListeners() {
-        if (unsubDevices) { unsubDevices(); unsubDevices = null; }
-        Object.keys(telemetryUnsubs).forEach((mac) => {
-            telemetryUnsubs[mac]();
-            delete telemetryUnsubs[mac];
-        });
-        Object.keys(alertState).forEach((mac) => delete alertState[mac]);
+      if (!isDatabaseConnected) throw new Error("Firebase is offline; SMS was not requested.");
+      await fireSms(mac, latest, expectedEventId);
+    } catch (err) {
+      const current = alertState[mac];
+      if (current) { current.status = "failed"; current.error = err?.message || "Could not verify alert state."; current.rendered = null; updateAlertUI(mac); }
+    }
+  }
+
+  async function fireSms(mac, data, eventId) {
+    const st = alertState[mac];
+    const meta = deviceMeta[mac] || {};
+    if (!currentUser || !meta.contact) throw new Error("Sign in and set an emergency contact first.");
+    if (!/^\+91\d{10}$/.test(meta.contact)) throw new Error("Fast2SMS requires a valid Indian 10-digit mobile number.");
+    if (!FAST2SMS_API_KEY || FAST2SMS_API_KEY.includes("PASTE_NEW")) throw new Error("Paste your NEW Fast2SMS API key into index.html first.");
+
+    st.status = "sending"; st.rendered = null; updateAlertUI(mac);
+    const number = meta.contact.slice(3);
+    const response = await fetch(FAST2SMS_URL, {
+      method: "POST",
+      headers: { "authorization": FAST2SMS_API_KEY, "accept": "application/json", "content-type": "application/json" },
+      body: JSON.stringify({ route: "q", message: buildSmsText(mac, data), numbers: number, flash: "0" })
+    });
+    let result = {};
+    try { result = await response.json(); } catch (_) {}
+    if (!response.ok || result.return === false) {
+      throw new Error(result.message || `Fast2SMS request failed (HTTP ${response.status}).`);
+    }
+
+    st.status = "sent"; st.sentAt = new Date(); st.rendered = null; updateAlertUI(mac);
+    // Persist successful fall-event IDs so reloading the dashboard doesn't resend the same fall SMS.
+    if (eventId) {
+      update(ref(db, `Devices/${mac}`), { lastSmsEventId: eventId, lastSmsAt: Date.now(), lastSmsStatus: "sent" })
+        .catch(err => console.warn("SMS request succeeded, but event de-duplication metadata could not be saved:", err));
+    }
+  }
+
+  window.retrySms = mac => {
+    const st = alertState[mac];
+    if (!st) return;
+    st.status = "counting";
+    st.deadline = Date.now() + ALERT_COUNTDOWN_MS;
+    st.rendered = null;
+    updateAlertUI(mac);
+  };
+
+  function updateAlertUI(mac) {
+    const id = safeIdOf(mac);
+    const box = document.getElementById(`alert-${id}`);
+    if (!box) return;
+    const st = alertState[mac] || { status: "idle" };
+    const meta = deviceMeta[mac] || {};
+    if (st.status === "idle") { box.style.display = "none"; box.innerHTML = ""; return; }
+
+    if (st.status === "counting") {
+      const seconds = Math.max(0, Math.ceil((st.deadline - Date.now()) / 1000));
+      const count = document.getElementById(`count-${id}`);
+      if (st.rendered === "counting" && count) { count.innerText = seconds; return; }
+    } else if (st.rendered === st.status) return;
+
+    st.rendered = st.status;
+    box.className = "alert-box";
+    box.style.display = "block";
+    const data = lastData[mac] || {};
+    const reason = esc(st.type === "fall" ? "FALL DETECTED" : emergencyReason(data));
+
+    switch (st.status) {
+      case "counting": {
+        const seconds = Math.max(0, Math.ceil((st.deadline - Date.now()) / 1000));
+        box.classList.add("pulse");
+        box.innerHTML = `<div class="alert-title">🚨 EMERGENCY: ${reason}</div><div class="countdown" id="count-${id}">${seconds}</div><div class="alert-text">SMS to ${esc(meta.contact)} unless the physical GPIO4 button on the device is pressed before the countdown ends.</div>`;
+        break;
+      }
+      case "checking":
+        box.innerHTML = `<div class="alert-title">Checking device cancellation...</div><div class="alert-text">Reading the latest event and button-cancellation state from Firebase before requesting SMS.</div>`;
+        break;
+      case "cancelled":
+        box.classList.add("calm");
+        box.innerHTML = `<div class="alert-title">Physical button pressed — alert cancelled</div><div class="alert-text">No SMS request was made for this fall event.</div>`;
+        break;
+      case "nocontact":
+        box.innerHTML = `<div class="alert-title">🚨 ${reason}</div><div class="alert-text">No emergency contact is saved. Add one below to enable SMS alerts.</div>`;
+        break;
+      case "sending":
+        box.innerHTML = `<div class="alert-title">Requesting SMS...</div><div class="alert-text">Submitting the alert to Fast2SMS for ${esc(meta.contact)}.</div>`;
+        break;
+      case "sent":
+        box.classList.add("done");
+        box.innerHTML = `<div class="alert-title">✅ SMS request accepted</div><div class="alert-text">Destination: ${esc(meta.contact)}${st.sentAt ? ` · ${st.sentAt.toLocaleTimeString()}` : ""}. Check the Fast2SMS dashboard for delivery status.</div>`;
+        break;
+      case "failed":
+        box.innerHTML = `<div class="alert-title">⚠️ SMS request failed</div><div class="alert-text">${esc(st.error || "Unknown error")}</div><button class="btn btn-primary" onclick="retrySms('${esc(mac)}')">Retry 15-second countdown</button>`;
+        break;
+      case "stale":
+        box.classList.add("calm");
+        box.innerHTML = `<div class="alert-title">Device data unavailable</div><div class="alert-text">The device is offline or its data is stale. A pending SMS was not sent without fresh device state.</div>`;
+        break;
+      default:
+        box.style.display = "none";
+        box.innerHTML = "";
+    }
+  }
+
+  // One timer updates the visual countdown and requests a final Firebase check at zero.
+  setInterval(() => {
+    Object.keys(alertState).forEach(mac => {
+      const st = alertState[mac];
+      if (!st || st.status !== "counting") return;
+      if (Date.now() >= st.deadline) confirmThenSendSms(mac);
+      else updateAlertUI(mac);
+    });
+  }, 200);
+
+  function attachUserDeviceListeners(uid) {
+    teardownListeners();
+    unsubDevices = onValue(ref(db, `Users/${uid}/devices`), snapshot => {
+      const container = document.getElementById("device-container");
+      const devices = snapshot.val();
+      Object.keys(telemetryUnsubs).forEach(mac => { telemetryUnsubs[mac](); delete telemetryUnsubs[mac]; });
+      if (!devices) {
         knownDeviceMacs = [];
+        container.innerHTML = '<p class="empty">No monitors linked. Scan a QR code or enter a MAC address to start.</p>';
+        return;
+      }
+      container.innerHTML = "";
+      knownDeviceMacs = Object.keys(devices);
+      knownDeviceMacs.forEach(mac => {
+        const raw = devices[mac];
+        deviceMeta[mac] = typeof raw === "string" ? { name: raw, contact: "" } : { name: raw.name || "Unnamed", contact: raw.contact || "" };
+        renderDeviceCard(mac, deviceMeta[mac]);
+        subscribeToTelemetry(mac);
+      });
+    }, error => console.error("User device listener failed:", error));
+  }
+
+  function renderDeviceCard(mac, meta) {
+    const id = safeIdOf(mac);
+    const card = document.createElement("div");
+    card.className = "device-card";
+    card.id = `card-${id}`;
+    card.innerHTML = `
+      <div class="device-header"><div><div class="device-title">${esc(meta.name)}</div><span class="device-mac">MAC: ${esc(mac)}</span><span id="risk-${id}" class="device-badge">SYNCING...</span></div><button onclick="removeDevice('${esc(mac)}')" style="background:none;color:var(--danger);font-size:1.1rem;padding:3px 6px">✕</button></div>
+      <div class="metric-grid">
+        <div class="metric-item"><span class="metric-label">Object temperature</span><span id="temp-${id}" class="metric-val">0.0 °C</span></div>
+        <div class="metric-item"><span class="metric-label">Heart rate</span><span id="hr-${id}" class="metric-val">0 BPM</span></div>
+        <div class="metric-item"><span class="metric-label">Sunstroke indicator</span><span id="sunstroke-${id}" class="metric-val">No</span></div>
+        <div class="metric-item"><span class="metric-label">Fall status</span><span id="fall-${id}" class="metric-val">NO</span></div>
+        <div class="metric-item" style="grid-column:1/-1"><span class="metric-label">Location</span><span id="gps-${id}" class="metric-val">Location unavailable</span></div>
+      </div>
+      <div class="contact-row"><div><span class="metric-label">Emergency contact</span><span style="font-weight:700">${meta.contact ? esc(meta.contact) : '<span style="color:var(--warn)">Not set</span>'}</span></div><button class="link-btn" onclick="editContact('${esc(mac)}')">${meta.contact ? "Edit" : "Add"}</button></div>
+      <div id="alert-${id}" class="alert-box"></div>`;
+    document.getElementById("device-container").appendChild(card);
+    if (alertState[mac]) alertState[mac].rendered = null;
+    updateAlertUI(mac);
+  }
+
+  function displayDeviceLocation(id, data) {
+    const el = document.getElementById(`gps-${id}`);
+    if (!el) return;
+    if (data.location && Number(data.location.lat) !== 0 && Number(data.location.lng) !== 0) {
+      const lat = Number(data.location.lat), lng = Number(data.location.lng);
+      el.innerHTML = `<a href="https://maps.google.com/?q=${lat},${lng}" target="_blank" rel="noopener" style="color:var(--blue);text-decoration:none">View location ↗</a>`;
+    } else {
+      el.innerText = "Location unavailable";
     }
-
-
-    // ============================================================
-    // CONNECTIVITY & STALENESS WATCHERS
-    // ============================================================
-
-    onValue(ref(db, ".info/connected"), (snap) => {
-
-        isBrowserOnline = snap.val() === true;
-
-        if (!isBrowserOnline) {
-            knownDeviceMacs.forEach((mac) => {
-                const safeId = safeIdOf(mac);
-                const card = document.getElementById(`card-${safeId}`);
-                const riskBadge = document.getElementById(`risk-${safeId}`);
-                if (card && riskBadge)
-                    blankDeviceCard(mac, card, riskBadge);
-            });
-        }
-
-    });
-
-
-    setInterval(() => {
-
-        if (!isBrowserOnline) return;
-
-        const now = Date.now();
-
-        knownDeviceMacs.forEach((mac) => {
-
-            if (!deviceHasTimestamp[mac]) return;
-
-            const safeId = safeIdOf(mac);
-            const card = document.getElementById(`card-${safeId}`);
-            const riskBadge = document.getElementById(`risk-${safeId}`);
-
-            if (!card || !riskBadge) return;
-
-            if (now - deviceLastUpdated[mac] > STALE_THRESHOLD_MS)
-                blankDeviceCard(mac, card, riskBadge);
-
-        });
-
-    }, 5000);
-
-
-    // Zero values on a card (no sensor input / no connection).
-    // Also drops any pending emergency, because we must not send an SMS
-    // based on stale readings.
-    function blankDeviceCard(mac, card, riskBadge) {
-
-        const safeId = safeIdOf(mac);
-
-        document.getElementById(`temp-${safeId}`).innerText = "0.0 °C";
-        document.getElementById(`hr-${safeId}`).innerText = "0 BPM";
-        document.getElementById(`sunstroke-${safeId}`).innerText = "No";
-        document.getElementById(`fall-${safeId}`).innerText = "NO";
-        document.getElementById(`gps-${safeId}`).innerText = "0, 0";
-
-        riskBadge.innerText = "NO SIGNAL";
-        card.className = "device-card";
-        riskBadge.className = "device-badge";
-
-        const st = alertState[mac];
-        if (st && (st.status === "counting" || st.status === "nocontact" || st.status === "cancelled")) {
-            resetAlert(mac);
-        }
-
-    }
-
-
-    // ============================================================
-    // EMERGENCY ALERT + 15 SECOND COUNTDOWN
-    // ============================================================
-
-    function resetAlert(mac) {
-        alertState[mac] = { status: "idle", rendered: null };
-        updateAlertUI(mac);
-    }
-
-    // Called on every telemetry reading for a device
-    function evaluateEmergency(mac, data) {
-
-        const emergency = isEmergency(data);
-        const st = alertState[mac] || (alertState[mac] = { status: "idle", rendered: null });
-
-        if (!emergency) {
-            // Emergency cleared -> re-arm for the next one
-            if (st.status !== "idle" && st.status !== "sending") resetAlert(mac);
-            return;
-        }
-
-        // Emergency is active. Only start a new countdown from the idle state,
-        // so a cancelled/sent alert does not re-trigger while the condition persists.
-        if (st.status === "idle") {
-
-            const meta = deviceMeta[mac] || {};
-
-            if (!meta.contact) {
-                st.status = "nocontact";
-            } else {
-                st.status = "counting";
-                st.deadline = Date.now() + ALERT_COUNTDOWN_SEC * 1000;
-            }
-
-            st.rendered = null;
-            updateAlertUI(mac);
-        }
-
-    }
-
-    window.cancelAlert = (mac) => {
-        const st = alertState[mac];
-        if (!st || st.status !== "counting") return;
-        st.status = "cancelled";
-        st.rendered = null;
-        updateAlertUI(mac);
-    };
-
-    window.retrySms = (mac) => {
-        const st = alertState[mac];
-        if (!st) return;
-        st.status = "counting";
-        st.deadline = Date.now() + ALERT_COUNTDOWN_SEC * 1000;
-        st.rendered = null;
-        updateAlertUI(mac);
-    };
-
-    function fireSms(mac) {
-
-        const st = alertState[mac];
-        const meta = deviceMeta[mac] || {};
-
-        if (!currentUser || !meta.contact) return;
-
-        st.status = "sending";
-        st.rendered = null;
-        updateAlertUI(mac);
-
-        const message = buildSmsText(mac);
-
-        // Fast2SMS expects a 10-digit Indian mobile number (no +91)
-        if (!/^\+91\d{10}$/.test(meta.contact)) {
-            st.status = "failed";
-            st.error = "Fast2SMS supports Indian (+91) numbers only.";
-            st.rendered = null;
-            updateAlertUI(mac);
-            return;
-        }
-
-        const number = meta.contact.slice(3);
-
-        const url = "https://www.fast2sms.com/dev/bulkV2" +
-            "?authorization=" + encodeURIComponent(FAST2SMS_API_KEY) +
-            "&route=" + FAST2SMS_ROUTE +
-            "&message=" + encodeURIComponent(message) +
-            "&flash=0" +
-            "&numbers=" + encodeURIComponent(number);
-
-        // no-cors: Fast2SMS does not allow browser CORS reads, so the request is
-        // sent but the reply cannot be read. A resolved fetch = request delivered.
-        fetch(url, { method: "GET", mode: "no-cors" })
-        .then(() => {
-            st.status = "sent";
-            st.sentAt = new Date();
-            st.rendered = null;
-            updateAlertUI(mac);
-        })
-        .catch((err) => {
-            st.status = "failed";
-            st.error = err.message;
-            st.rendered = null;
-            updateAlertUI(mac);
-        });
-
-    }
-
-    // Draws the alert box for a device. Full HTML is rebuilt only when the status
-    // changes, so buttons stay clickable while the number ticks down.
-    function updateAlertUI(mac) {
-
-        const safeId = safeIdOf(mac);
-        const box = document.getElementById(`alert-${safeId}`);
-        if (!box) return;
-
-        const st = alertState[mac] || { status: "idle" };
-        const meta = deviceMeta[mac] || {};
-
-        if (st.status === "counting") {
-            const secs = Math.max(0, Math.ceil((st.deadline - Date.now()) / 1000));
-            const span = document.getElementById(`count-${safeId}`);
-            if (st.rendered === "counting" && span) {
-                span.innerText = secs;
-                return;
-            }
-        } else if (st.rendered === st.status) {
-            return;
-        }
-
-        st.rendered = st.status;
-        box.className = "alert-box";
-        box.style.display = "block";
-
-        const data = lastData[mac] || {};
-        const reason = esc(emergencyReason(data) || "emergency");
-        const smsHref = meta.contact
-            ? `sms:${meta.contact}?body=${encodeURIComponent(buildSmsText(mac))}`
-            : "#";
-
-        switch (st.status) {
-
-            case "counting": {
-                const secs = Math.max(0, Math.ceil((st.deadline - Date.now()) / 1000));
-                box.classList.add("pulse");
-                box.innerHTML = `
-                    <div class="alert-title">🚨 EMERGENCY: ${reason}</div>
-                    <div class="countdown" id="count-${safeId}">${secs}</div>
-                    <div class="alert-text">SMS will be sent to ${esc(meta.contact)} unless cancelled.</div>
-                    <button class="btn btn-ok" onclick="cancelAlert('${esc(mac)}')">I'M OK - CANCEL ALERT</button>`;
-                break;
-            }
-
-            case "cancelled":
-                box.classList.add("calm");
-                box.innerHTML = `
-                    <div class="alert-title">Alert cancelled</div>
-                    <div class="alert-text">No SMS was sent. Monitoring continues.</div>`;
-                break;
-
-            case "nocontact":
-                box.innerHTML = `
-                    <div class="alert-title">🚨 EMERGENCY: ${reason}</div>
-                    <div class="alert-text">No emergency contact is saved, so no SMS can be sent.</div>
-                    <button class="btn btn-primary" onclick="editContact('${esc(mac)}')">Add Emergency Contact</button>`;
-                break;
-
-            case "sending":
-                box.innerHTML = `
-                    <div class="alert-title">Sending SMS...</div>
-                    <div class="alert-text">Contacting ${esc(meta.contact)}</div>`;
-                break;
-
-            case "sent":
-                box.classList.add("done");
-                box.innerHTML = `
-                    <div class="alert-title">✅ SMS alert sent (via Fast2SMS)</div>
-                    <div class="alert-text">Sent to ${esc(meta.contact)} at ${st.sentAt ? st.sentAt.toLocaleTimeString() : ""}.</div>
-                    <a class="link-btn" href="${smsHref}">Also open SMS app</a>`;
-                break;
-
-            case "failed":
-                box.innerHTML = `
-                    <div class="alert-title">⚠️ SMS could not be sent</div>
-                    <div class="alert-text">${esc(st.error || "Unknown error")}</div>
-                    <div class="btn-group">
-                        <a class="btn btn-secondary" style="text-decoration:none;display:block" href="${smsHref}">Open SMS App</a>
-                        <button class="btn btn-primary" onclick="retrySms('${esc(mac)}')">Retry</button>
-                    </div>`;
-                break;
-
-            default:
-                box.style.display = "none";
-                box.innerHTML = "";
-        }
-
-    }
-
-    // Single global ticker: updates numbers and fires the SMS at zero
-    setInterval(() => {
-
-        const now = Date.now();
-
-        Object.keys(alertState).forEach((mac) => {
-
-            const st = alertState[mac];
-            if (!st || st.status !== "counting") return;
-
-            if (now >= st.deadline) {
-                fireSms(mac);
-            } else {
-                updateAlertUI(mac);
-            }
-
-        });
-
-    }, 250);
-
-
-    // ============================================================
-    // DASHBOARD LOGIC
-    // ============================================================
-
-    function attachUserDeviceListeners(uid) {
-
-        teardownListeners();
-
-        const userDevicesRef = ref(db, `Users/${uid}/devices`);
-
-        unsubDevices = onValue(userDevicesRef, (snapshot) => {
-
-            const container = document.getElementById("device-container");
-            const devices = snapshot.val();
-
-            // Drop old telemetry listeners before rebuilding (avoids duplicates)
-            Object.keys(telemetryUnsubs).forEach((mac) => {
-                telemetryUnsubs[mac]();
-                delete telemetryUnsubs[mac];
-            });
-
-            if (!devices) {
-                knownDeviceMacs = [];
-                container.innerHTML = `
-                    <p style="text-align: center; color: var(--text-muted); font-size: 0.9rem;">
-                        No monitors linked. Scan a QR code or add a MAC address to start monitoring.
-                    </p>`;
-                return;
-            }
-
-            container.innerHTML = "";
-            knownDeviceMacs = Object.keys(devices);
-
-            knownDeviceMacs.forEach((mac) => {
-
-                // Supports old records (plain name string) and new records ({name, contact})
-                const raw = devices[mac];
-                deviceMeta[mac] = (typeof raw === "string")
-                    ? { name: raw, contact: "" }
-                    : { name: raw.name || "Unnamed", contact: raw.contact || "" };
-
-                renderDeviceCard(mac, deviceMeta[mac]);
-                subscribeToTelemetry(mac);
-
-            });
-
-        });
-
-    }
-
-
-    // ============================================================
-    // DEVICE CARD
-    // ============================================================
-
-    function renderDeviceCard(mac, meta) {
-
-        const safeId = safeIdOf(mac);
-
-        const card = document.createElement("div");
-        card.className = "device-card";
-        card.id = `card-${safeId}`;
-
-        card.innerHTML = `
-
-            <div class="device-header">
-                <div>
-                    <div class="device-title">${esc(meta.name)}</div>
-                    <span class="device-mac">ID: ${esc(mac)}</span>
-                    <span id="risk-${safeId}" class="device-badge" style="margin-top:8px; display:inline-block;">
-                        SYNCING...
-                    </span>
-                </div>
-
-                <button
-                    onclick="removeDevice('${esc(mac)}')"
-                    style="background: none; border: none; color: var(--danger); font-size: 1.1rem; cursor: pointer; font-weight: bold;">
-                    ✕
-                </button>
-            </div>
-
-            <div class="metric-grid">
-                <div class="metric-item">
-                    <span class="metric-label">Temperature</span>
-                    <span id="temp-${safeId}" class="metric-val">0.0 °C</span>
-                </div>
-                <div class="metric-item">
-                    <span class="metric-label">Heart Rate</span>
-                    <span id="hr-${safeId}" class="metric-val">0 BPM</span>
-                </div>
-                <div class="metric-item">
-                    <span class="metric-label">Sunstroke Detected</span>
-                    <span id="sunstroke-${safeId}" class="metric-val">No</span>
-                </div>
-                <div class="metric-item">
-                    <span class="metric-label">Fall Status</span>
-                    <span id="fall-${safeId}" class="metric-val">NO</span>
-                </div>
-                <div class="metric-item">
-                    <span class="metric-label">Location</span>
-                    <span id="gps-${safeId}" class="metric-val" style="font-size:0.9rem;">Getting location...</span>
-                </div>
-            </div>
-
-            <div class="contact-row">
-                <div>
-                    <span class="metric-label">Emergency Contact</span>
-                    <span style="font-weight:600;">${meta.contact ? esc(meta.contact) : "<span style='color:var(--warning)'>Not set</span>"}</span>
-                </div>
-                <button class="link-btn" onclick="editContact('${esc(mac)}')">${meta.contact ? "Edit" : "Add"}</button>
-            </div>
-
-            <div id="alert-${safeId}" class="alert-box"></div>
-        `;
-
-        document.getElementById("device-container").appendChild(card);
-
-        // Restore any in-progress alert after a re-render
-        if (alertState[mac]) alertState[mac].rendered = null;
-        updateAlertUI(mac);
-
-    }
-
-
-    // ============================================================
-    // LOCATION DISPLAY
-    // ============================================================
-
-    function displayDeviceLocation(safeId, data) {
-
-        const locationElement = document.getElementById(`gps-${safeId}`);
-        if (!locationElement) return;
-
-        if (
-            data &&
-            data.location &&
-            Number(data.location.lat) !== 0 &&
-            Number(data.location.lng) !== 0
-        ) {
-            const latitude = Number(data.location.lat);
-            const longitude = Number(data.location.lng);
-
-            locationElement.innerHTML =
-                `<a href="https://maps.google.com/?q=${latitude},${longitude}" target="_blank" style="color: var(--accent-blue); text-decoration: none;">View Location ↗</a>`;
-            return;
-        }
-
-        if (!navigator.geolocation) {
-            locationElement.innerText = "Location unavailable";
-            return;
-        }
-
-        locationElement.innerText = "Getting location...";
-
-        navigator.geolocation.getCurrentPosition(
-            (position) => {
-                const latitude = position.coords.latitude;
-                const longitude = position.coords.longitude;
-                const accuracy = Math.round(position.coords.accuracy);
-
-                locationElement.innerHTML =
-                    `<a href="https://maps.google.com/?q=${latitude},${longitude}" target="_blank" style="color: var(--accent-blue); text-decoration: none;">View Location ↗</a><br>` +
-                    `<span style="font-size:0.7rem; color:var(--text-muted);">±${accuracy} m</span>`;
-            },
-            () => { locationElement.innerText = "0, 0"; },
-            { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
-        );
-
-    }
-
-
-    // ============================================================
-    // TELEMETRY
-    // ============================================================
-
-    
-function subscribeToTelemetry(mac) {
-    const safeId = safeIdOf(mac);
-    const deviceRef = ref(db, `Devices/${mac}`);
-
-    telemetryUnsubs[mac] = onValue(deviceRef, (snapshot) => {
-        const data = snapshot.val();
-
-        console.log("Telemetry MAC:", mac);
-        console.log("Firebase path:", `Devices/${mac}`);
-        console.log("Firebase data:", data);
-
-        const card = document.getElementById(`card-${safeId}`);
-        const riskBadge = document.getElementById(`risk-${safeId}`);
-
-        if (!card || !riskBadge) {
-            console.error("Device card not found:", safeId);
-            return;
-        }
-
-        if (!isBrowserOnline) {
-            console.warn("Firebase connection is offline");
-            blankDeviceCard(mac, card, riskBadge);
-            return;
-        }
-
-        if (!data) {
-            console.warn("No telemetry data at:", `Devices/${mac}`);
-            blankDeviceCard(mac, card, riskBadge);
-            return;
-        }
-
-        lastData[mac] = data;
-        console.log("Temperature:", data.temperature);
-        console.log("Heart rate:", data.heartRate);
-
-        const temperature = Number(data.temperature) || 0;
-        const heartRate = Number(data.heartRate) || 0;
-
-        document.getElementById(`temp-${safeId}`).innerText =
-            `${temperature.toFixed(1)} °C`;
-
-        document.getElementById(`hr-${safeId}`).innerText =
-            `${heartRate} BPM`;
-
-        document.getElementById(`fall-${safeId}`).innerText =
-            data.fallDetected ? "DETECTED!" : "NO";
-
-        document.getElementById(`sunstroke-${safeId}`).innerText =
-            temperature >= 38.5 && heartRate >= 120 ? "Yes" : "No";
-
-        if (data.lastUpdated) {
-            deviceLastUpdated[mac] = Number(data.lastUpdated);
-            deviceHasTimestamp[mac] = true;
-        }
-
-        displayDeviceLocation(safeId, data);
-        evaluateEmergency(mac, data);
-    }, (error) => {
-        console.error("Firebase telemetry error:", error);
-    });
-}
-
-
-
-    // ============================================================
-    // ADD / EDIT / REMOVE DEVICE LOGIC
-    // ============================================================
-
-    function saveDeviceToFirebase(mac, name, contact, quiet) {
-
-        if (!currentUser) return;
-
-        set(
-            ref(db, `Users/${currentUser.uid}/devices/${mac}`),
-            { name: name, contact: contact }
-        )
-        .then(() => { if (!quiet) alert(`${name} added successfully!`); })
-        .catch(err => alert(err.message));
-
-    }
-
-
-    window.editContact = (mac) => {
-
-        const meta = deviceMeta[mac] || {};
-        const input = prompt(
-            `Emergency contact number for ${meta.name || "this wearer"}:`,
-            meta.contact || ""
-        );
-
-        if (input === null) return;
-
-        const phone = normalizePhone(input);
-        if (!phone) return alert("Invalid phone number. Example: 9876543210 or +919876543210");
-
-        saveDeviceToFirebase(mac, meta.name || "Unnamed", phone, true);
-
-        // If an emergency was waiting on a missing contact, restart it now
-        const st = alertState[mac];
-        if (st && st.status === "nocontact") resetAlert(mac);
-
-    };
-
-
-    window.removeDevice = (mac) => {
-
-        const name = (deviceMeta[mac] && deviceMeta[mac].name) || mac;
-
-        if (confirm(`Are you sure you want to unlink ${name}?`)) {
-
-            remove(ref(db, `Users/${currentUser.uid}/devices/${mac}`));
-
-            delete deviceLastUpdated[mac];
-            delete deviceHasTimestamp[mac];
-            delete alertState[mac];
-            delete lastData[mac];
-
-        }
-
-    };
-
-
-    // ============================================================
-    // UI MODALS CONTROL
-    // ============================================================
-
-    window.closeModal = (id) => {
-        document.getElementById(id).style.display = "none";
-    };
-
-
-    // ============================================================
-    // MANUAL ENTRY FLOW
-    // ============================================================
-
-    window.openManualModal = () => {
-        document.getElementById("manual-mac").value = "";
-        document.getElementById("manual-name").value = "";
-        document.getElementById("manual-contact").value = "";
-        document.getElementById("manual-modal").style.display = "block";
-    };
-
-
-    window.submitManual = () => {
-
-        const mac = document.getElementById("manual-mac").value.trim().toUpperCase();
-        const name = document.getElementById("manual-name").value.trim();
-        const phone = normalizePhone(document.getElementById("manual-contact").value);
-
-        if (!mac || !name)
-            return alert("Please fill in both MAC address and Wearer's Name!");
-
-        if (!phone)
-            return alert("Please enter a valid emergency contact number (e.g. 9876543210).");
-
-        window.closeModal("manual-modal");
-        saveDeviceToFirebase(mac, name, phone);
-
-    };
-
-
-    // ============================================================
-    // QR SCAN FLOW
-    // ============================================================
-
-    window.openScanner = () => {
-
-        document.getElementById("scanner-modal").style.display = "block";
-
-        html5QrScanner = new Html5Qrcode("reader");
-
-        html5QrScanner.start(
-            { facingMode: "environment" },
-            { fps: 10, qrbox: { width: 250, height: 250 } },
-
-            (decodedText) => {
-
-                window.closeScanner();
-
-                tempScannedMac = decodedText.trim().toUpperCase();
-
-                document.getElementById("scanned-mac-display").innerText = "MAC: " + tempScannedMac;
-                document.getElementById("qr-name").value = "";
-                document.getElementById("qr-contact").value = "";
-                document.getElementById("qr-name-modal").style.display = "block";
-
-            },
-
-            () => {}
-        )
-        .catch(() => alert("Camera permission required."));
-
-    };
-
-
-    window.submitQRName = () => {
-
-        const name = document.getElementById("qr-name").value.trim();
-        const phone = normalizePhone(document.getElementById("qr-contact").value);
-
-        if (!name)
-            return alert("Please enter the Wearer's Name!");
-
-        if (!phone)
-            return alert("Please enter a valid emergency contact number (e.g. 9876543210).");
-
-        window.closeModal("qr-name-modal");
-        saveDeviceToFirebase(tempScannedMac, name, phone);
-
-    };
-
-
-    window.closeScanner = () => {
-
-        if (html5QrScanner) {
-            html5QrScanner.stop()
-                .then(() => { document.getElementById("scanner-modal").style.display = "none"; })
-                .catch(() => { document.getElementById("scanner-modal").style.display = "none"; });
-        }
-        else {
-            document.getElementById("scanner-modal").style.display = "none";
-        }
-
-    };
-
+  }
+
+  function subscribeToTelemetry(mac) {
+    const id = safeIdOf(mac);
+    telemetryUnsubs[mac] = onValue(ref(db, `Devices/${mac}`), snapshot => {
+      const data = snapshot.val();
+      const card = document.getElementById(`card-${id}`);
+      const badge = document.getElementById(`risk-${id}`);
+      if (!card || !badge) return;
+      if (!isDatabaseConnected || !data) {
+        blankDeviceCard(mac, card, badge, "NO SIGNAL");
+        return;
+      }
+
+      lastData[mac] = data;
+      deviceLastSeenAt[mac] = Date.now(); // local reception time; lastUpdated is device uptime, not epoch time
+      const temperature = Number(data.temperature) || 0;
+      const heartRate = Number(data.heartRate) || 0;
+      document.getElementById(`temp-${id}`).innerText = `${temperature.toFixed(1)} °C`;
+      document.getElementById(`hr-${id}`).innerText = `${heartRate} BPM`;
+      document.getElementById(`fall-${id}`).innerText = data.fallAlertActive ? "ALERT WINDOW" : (data.fallDetected ? "DETECTED" : "NO");
+      document.getElementById(`sunstroke-${id}`).innerText = isHeatstrokeEmergency(data) ? "Yes" : "No";
+      const risk = String(data.riskLevel || "NORMAL").toUpperCase();
+      badge.innerText = risk;
+      badge.className = "device-badge " + (risk === "NORMAL" ? "badge-normal" : ((risk === "WARNING" || risk === "HIGH RISK") ? "badge-warning" : "badge-danger"));
+      card.className = "device-card" + (risk === "EMERGENCY" ? " emergency" : (risk === "WARNING" || risk === "HIGH RISK" ? " warning" : ""));
+      displayDeviceLocation(id, data);
+      evaluateEmergency(mac, data);
+    }, error => console.error("Device telemetry error:", mac, error));
+  }
+
+  function saveDeviceToFirebase(mac, name, contact, quiet = false) {
+    if (!currentUser) return;
+    set(ref(db, `Users/${currentUser.uid}/devices/${mac}`), { name, contact })
+      .then(() => { if (!quiet) alert(`${name} linked successfully.`); })
+      .catch(err => alert("Could not save device: " + err.message));
+  }
+  window.editContact = mac => {
+    const meta = deviceMeta[mac] || {};
+    const input = prompt(`Emergency contact for ${meta.name || mac}:`, meta.contact || "");
+    if (input === null) return;
+    const phone = normalizePhone(input);
+    if (!phone) return alert("Enter a valid number, e.g. 9876543210 or +919876543210.");
+    saveDeviceToFirebase(mac, meta.name || "Unnamed", phone, true);
+    const st = alertState[mac];
+    if (st && st.status === "nocontact") resetAlert(mac);
+  };
+  window.removeDevice = mac => {
+    const meta = deviceMeta[mac] || {};
+    if (!confirm(`Unlink ${meta.name || mac} from this account?`)) return;
+    remove(ref(db, `Users/${currentUser.uid}/devices/${mac}`)).catch(err => alert(err.message));
+    delete deviceLastSeenAt[mac]; delete lastData[mac]; delete alertState[mac];
+  };
+
+  window.closeModal = id => { document.getElementById(id).style.display = "none"; };
+  window.openManualModal = () => {
+    ["manual-mac", "manual-name", "manual-contact"].forEach(id => document.getElementById(id).value = "");
+    document.getElementById("manual-modal").style.display = "block";
+  };
+  window.submitManual = () => {
+    const mac = document.getElementById("manual-mac").value.trim().toUpperCase();
+    const name = document.getElementById("manual-name").value.trim();
+    const phone = normalizePhone(document.getElementById("manual-contact").value);
+    if (!mac || !name) return alert("Enter the MAC address and wearer's name.");
+    if (!/^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(mac)) return alert("Enter a MAC address in AA:BB:CC:DD:EE:FF format.");
+    if (!phone) return alert("Enter a valid emergency contact number.");
+    closeModal("manual-modal"); saveDeviceToFirebase(mac, name, phone);
+  };
+
+  window.openScanner = () => {
+    document.getElementById("scanner-modal").style.display = "block";
+    try {
+      html5QrScanner = new Html5Qrcode("reader");
+      html5QrScanner.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 230, height: 230 } }, decodedText => {
+        window.closeScanner();
+        tempScannedMac = decodedText.trim().toUpperCase();
+        document.getElementById("scanned-mac-display").innerText = "MAC: " + tempScannedMac;
+        document.getElementById("qr-name").value = "";
+        document.getElementById("qr-contact").value = "";
+        document.getElementById("qr-name-modal").style.display = "block";
+      }, () => {}).catch(() => alert("Camera permission is required. Use HTTPS or localhost."));
+    } catch (err) { alert("Could not start QR scanner: " + err.message); }
+  };
+  window.closeScanner = () => {
+    if (html5QrScanner) {
+      html5QrScanner.stop().catch(() => {}).finally(() => {
+        html5QrScanner.clear().catch(() => {});
+        html5QrScanner = null;
+        document.getElementById("scanner-modal").style.display = "none";
+      });
+    } else document.getElementById("scanner-modal").style.display = "none";
+  };
+  window.submitQRName = () => {
+    const name = document.getElementById("qr-name").value.trim();
+    const phone = normalizePhone(document.getElementById("qr-contact").value);
+    if (!tempScannedMac) return alert("No MAC address was scanned.");
+    if (!name) return alert("Enter the wearer's name.");
+    if (!phone) return alert("Enter a valid emergency contact number.");
+    closeModal("qr-name-modal"); saveDeviceToFirebase(tempScannedMac, name, phone);
+  };
 </script>
-
 </body>
 </html>
