@@ -825,91 +825,69 @@
     // TELEMETRY
     // ============================================================
 
-    function subscribeToTelemetry(mac) {
+    
+function subscribeToTelemetry(mac) {
+    const safeId = safeIdOf(mac);
+    const deviceRef = ref(db, `Devices/${mac}`);
 
-        const safeId = safeIdOf(mac);
-        const deviceRef = ref(db, `Devices/${mac}`);
+    telemetryUnsubs[mac] = onValue(deviceRef, (snapshot) => {
+        const data = snapshot.val();
 
-        telemetryUnsubs[mac] = onValue(deviceRef, (snapshot) => {
+        console.log("Telemetry MAC:", mac);
+        console.log("Firebase path:", `Devices/${mac}`);
+        console.log("Firebase data:", data);
 
-            const data = snapshot.val();
-            const card = document.getElementById(`card-${safeId}`);
-            const riskBadge = document.getElementById(`risk-${safeId}`);
+        const card = document.getElementById(`card-${safeId}`);
+        const riskBadge = document.getElementById(`risk-${safeId}`);
 
-            if (!card || !riskBadge) return;
+        if (!card || !riskBadge) {
+            console.error("Device card not found:", safeId);
+            return;
+        }
 
-            if (!isBrowserOnline) {
-                blankDeviceCard(mac, card, riskBadge);
-                return;
-            }
+        if (!isBrowserOnline) {
+            console.warn("Firebase connection is offline");
+            blankDeviceCard(mac, card, riskBadge);
+            return;
+        }
 
-            if (!data) {
-                blankDeviceCard(mac, card, riskBadge);
-                return;
-            }
+        if (!data) {
+            console.warn("No telemetry data at:", `Devices/${mac}`);
+            blankDeviceCard(mac, card, riskBadge);
+            return;
+        }
 
-            lastData[mac] = data;
+        lastData[mac] = data;
+        console.log("Temperature:", data.temperature);
+        console.log("Heart rate:", data.heartRate);
 
-            const temperature = Number(data.temperature) || 0;
-            const heartRate = Number(data.heartRate) || 0;
+        const temperature = Number(data.temperature) || 0;
+        const heartRate = Number(data.heartRate) || 0;
 
-            if (data.lastUpdated) {
-                deviceLastUpdated[mac] = Number(data.lastUpdated);
-                deviceHasTimestamp[mac] = true;
-            }
+        document.getElementById(`temp-${safeId}`).innerText =
+            `${temperature.toFixed(1)} °C`;
 
-            // ---- Risk display ----
-            let displayRisk = "SAFE";
-            let riskClass = "normal";
+        document.getElementById(`hr-${safeId}`).innerText =
+            `${heartRate} BPM`;
 
-            if (temperature >= 38.5 && heartRate >= 120) {
-                displayRisk = "SUNSTROKE DETECTED";
-                riskClass = "danger";
-            }
-            else if (
-                (temperature >= 37.8 && temperature <= 38.4) ||
-                (heartRate >= 100 && heartRate <= 110)
-            ) {
-                displayRisk = "WARNING";
-                riskClass = "warning";
-            }
-            else if (heartRate > 110 && heartRate < 120) {
-                displayRisk = "WARNING";
-                riskClass = "warning";
-            }
+        document.getElementById(`fall-${safeId}`).innerText =
+            data.fallDetected ? "DETECTED!" : "NO";
 
-            document.getElementById(`sunstroke-${safeId}`).innerText =
-                (temperature >= 38.5 && heartRate >= 120) ? "Yes" : "No";
+        document.getElementById(`sunstroke-${safeId}`).innerText =
+            temperature >= 38.5 && heartRate >= 120 ? "Yes" : "No";
 
-            document.getElementById(`temp-${safeId}`).innerText = `${temperature.toFixed(1)} °C`;
-            document.getElementById(`hr-${safeId}`).innerText = `${heartRate} BPM`;
-            document.getElementById(`fall-${safeId}`).innerText = data.fallDetected ? "DETECTED!" : "NO";
+        if (data.lastUpdated) {
+            deviceLastUpdated[mac] = Number(data.lastUpdated);
+            deviceHasTimestamp[mac] = true;
+        }
 
-            displayDeviceLocation(safeId, data);
+        displayDeviceLocation(safeId, data);
+        evaluateEmergency(mac, data);
+    }, (error) => {
+        console.error("Firebase telemetry error:", error);
+    });
+}
 
-            card.className = "device-card";
-            riskBadge.className = "device-badge";
-
-            if (riskClass === "danger" || data.fallDetected) {
-                card.classList.add("emergency");
-                riskBadge.classList.add("badge-danger");
-            }
-            else if (riskClass === "warning") {
-                card.classList.add("warning");
-                riskBadge.classList.add("badge-warning");
-            }
-            else {
-                riskBadge.classList.add("badge-normal");
-            }
-
-            riskBadge.innerText = displayRisk;
-
-            // ---- Start / clear the emergency countdown ----
-            evaluateEmergency(mac, data);
-
-        });
-
-    }
 
 
     // ============================================================
