@@ -101,7 +101,7 @@
   };
 
   // Fast2SMS configuration
-  const FAST2SMS_API_KEY = "pdtuajlmDRZh7VrxXOMFyfgC0v2Honbi45L6YPTcqk3QEUKAs9jCDUrMV1cf7Htuidv5LPJQNYWRZ0nz";
+  const FAST2SMS_API_KEY = "zcBRKji2aotU8Px5y6ebLDuZpCQ1AskgSh9rMTlvXqOV7GYndISIplyOJW1FHU7jkQwfM8BrvXGx65qa";
   const FAST2SMS_URL = "https://www.fast2sms.com/dev/bulkV2";
   const ALERT_COUNTDOWN_MS = 10000;
   const DEFAULT_COUNTRY_CODE = "+91";
@@ -189,13 +189,13 @@
   }
 
   // Text sent by SMS
-  function buildSmsText(mac, data = lastData[mac] || {}) {
+  function buildSmsText(mac, data = lastData[mac] || {}, manual = false) {
     const meta = deviceMeta[mac] || {};
     const k = getAlertKinds(data);
     const lines = [];
     if (k.sun) lines.push("Sunstroke detected for your loved one!");
     if (k.fall) lines.push("Fall detected for your loved one!");
-    if (!lines.length) lines.push("Emergency detected for your loved one!");
+    if (!lines.length) lines.push(manual ? "Emergency alert for your loved one! Please check on them immediately." : "Emergency detected for your loved one!");
     const t = (Number(data.temperature) || 0).toFixed(1);
     const hr = Number(data.heartRate) || 0;
     const spo2 = getSpo2(data);
@@ -378,7 +378,7 @@
         const ageMs = Number.isFinite(startedAt) && Number.isFinite(updatedAt) ? Math.max(0, updatedAt - startedAt) * 1000 : 0;
         startAlertCountdown(mac, "emergency", eventId);
       }
-    } else if (st.status !== "sending" && st.status !== "sent" && st.status !== "checking") {
+    } else if (!["sending", "sent", "checking", "failed"].includes(st.status)) {
       resetAlert(mac);
     }
   }
@@ -416,7 +416,7 @@
     }
   }
 
-  async function fireSms(mac, data, eventId) {
+  async function fireSms(mac, data, eventId, manual = false) {
     const st = alertState[mac];
     const meta = deviceMeta[mac] || {};
     if (!currentUser || !meta.contact) throw new Error("Sign in and configure an emergency contact first.");
@@ -426,7 +426,7 @@
     st.rendered = null;
     updateAlertUI(mac);
 
-    await sendViaFast2Sms(cleanPhone, buildSmsText(mac, data));
+    await sendViaFast2Sms(cleanPhone, buildSmsText(mac, data, manual));
 
     st.status = "sent";
     st.sentAt = new Date();
@@ -457,9 +457,29 @@
     }).catch(err => console.warn("Could not cancel on Firebase:", err));
   };
 
+  window.sendManualSms = mac => {
+    const meta = deviceMeta[mac] || {};
+    if (!meta.contact) return alert("Add an emergency contact first (Edit).");
+    if (!confirm(`Send an emergency SMS alert to ${meta.contact} now?`)) return;
+    const st = alertState[mac] || (alertState[mac] = { status: "idle", rendered: null, eventId: "", type: "" });
+    st.type = "manual";
+    st.eventId = "";
+    st.error = "";
+    st.rendered = null;
+    st.status = "sending";
+    updateAlertUI(mac);
+    fireSms(mac, lastData[mac] || {}, "", true).catch(err => {
+      st.status = "failed";
+      st.error = err?.message || "SMS could not be sent.";
+      st.rendered = null;
+      updateAlertUI(mac);
+    });
+  };
+
   window.retrySms = mac => {
     const st = alertState[mac];
     if (!st) return;
+    if (st.type === "manual") return sendManualSms(mac);
     startAlertCountdown(mac, st.type || "emergency", st.eventId);
   };
 
@@ -613,6 +633,7 @@
         </div>
         <button class="link-btn" onclick="editContact('${esc(mac)}')">Edit</button>
       </div>
+      <button class="btn btn-danger" style="margin-top:10px" onclick="sendManualSms('${esc(mac)}')">🚨 Send SMS Alert Now</button>
       <div id="alert-${id}" class="alert-box"></div>`;
     document.getElementById("device-container").appendChild(card);
     if (alertState[mac]) alertState[mac].rendered = null;
