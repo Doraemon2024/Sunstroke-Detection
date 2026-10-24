@@ -49,6 +49,12 @@
         <button class="btn btn-primary" onclick="openScanner()">📷 Scan QR</button>
         <button class="btn btn-secondary" onclick="openManualModal()">⌨️ Enter MAC</button>
       </div>
+      <div class="device-card" style="border-left-color:var(--blue)">
+        <div class="device-title" style="margin-bottom:8px">Manual SMS (works without ESP32)</div>
+        <input type="tel" id="quick-phone" placeholder="Mobile number (10 digits)" style="margin-bottom:9px">
+        <button class="btn btn-danger" onclick="sendQuickSms()">📩 Send SMS Now</button>
+        <div id="quick-result" class="small-muted" style="margin-top:9px;overflow-wrap:anywhere"></div>
+      </div>
       <div id="device-container"></div>
     </div>
   </section>
@@ -455,6 +461,24 @@
       fallAlertActive: false,
       emergencyAlertActive: false
     }).catch(err => console.warn("Could not cancel on Firebase:", err));
+  };
+
+  window.sendQuickSms = async () => {
+    const out = document.getElementById("quick-result");
+    const typed = document.getElementById("quick-phone").value.trim();
+    const fallback = knownDeviceMacs.map(m => deviceMeta[m]?.contact).find(Boolean) || "";
+    const phone = extractClean10Digit(normalizePhone(typed || fallback) || "");
+    if (!/^\d{10}$/.test(phone)) { out.style.color = "#fca5a5"; out.innerText = "Enter a valid 10-digit mobile number."; return; }
+    if (!confirm(`Send an SMS to ${phone} now?`)) return;
+    out.style.color = "var(--muted)"; out.innerText = "Sending...";
+    try {
+      const res = await sendViaFast2Sms(phone, "Emergency alert for your loved one! Please check on them immediately. (Manual SMS from Sunstroke Detection and Health Monitoring System)");
+      out.style.color = "var(--ok)";
+      out.innerText = `✅ Fast2SMS accepted the SMS for ${phone}${res.request_id ? " (request " + res.request_id + ")" : ""}. Check the phone.`;
+    } catch (err) {
+      out.style.color = "#fca5a5";
+      out.innerText = "❌ " + (err?.message || "SMS failed.");
+    }
   };
 
   window.sendManualSms = mac => {
