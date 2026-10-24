@@ -414,6 +414,13 @@
       delete episodeId[mac];
     }
     const eventId = episodeId[mac] || fwId;
+
+    // Emergency is over: clear the previous alert box (sent / cancelled / failed) so it does not linger
+    if (!isEmergency) {
+      delete lastHandledEventId[mac];
+      if (!["sending", "checking"].includes(st.status)) resetAlert(mac);
+      return;
+    }
     const cancelledId = String(data.emergencyCancelledEventId || data.fallCancelledEventId || "");
     const isCancelled = (data.emergencyCancelled === true || data.fallCancelled === true) ||
                         (eventId && cancelledId === eventId);
