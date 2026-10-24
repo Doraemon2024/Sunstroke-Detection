@@ -49,13 +49,6 @@
         <button class="btn btn-primary" onclick="openScanner()">📷 Scan QR</button>
         <button class="btn btn-secondary" onclick="openManualModal()">⌨️ Enter MAC</button>
       </div>
-      <div class="device-card" style="border-left-color:var(--blue)">
-        <div class="device-title" style="margin-bottom:8px">Manual SMS (works without ESP32)</div>
-        <input type="tel" id="quick-phone" placeholder="Mobile number (10 digits)" style="margin-bottom:9px">
-        <button class="btn btn-danger" onclick="sendQuickSms()">📩 Send SMS Now</button>
-        <div id="key-info" class="small-muted" style="margin-top:9px"></div>
-        <div id="quick-result" class="small-muted" style="margin-top:9px;overflow-wrap:anywhere"></div>
-      </div>
       <div id="device-container"></div>
     </div>
   </section>
@@ -195,16 +188,14 @@
     return parts.join(" + ") || "Emergency Detected";
   }
 
-  // Text sent by SMS: only the detected condition
-  function buildSmsText(mac, data = lastData[mac] || {}, manual = false) {
+  // Text sent by SMS
+  function buildSmsText(mac, data = lastData[mac] || {}) {
     const k = getAlertKinds(data);
-    const parts = [];
-    if (k.sun) parts.push("Sunstroke detected");
-    if (k.fall) parts.push("Fall detected");
-    return parts.join(". ") || "Emergency alert";
+    if (k.sun && k.fall) return "Sunstroke and Fall Detected !";
+    if (k.sun) return "Sunstroke Detected !";
+    if (k.fall) return "Fall Detected !";
+    return "Emergency Detected !";
   }
-
-  document.getElementById("key-info").innerText = "Page version: key in use starts with " + FAST2SMS_API_KEY.slice(0, 6) + "…";
 
   // ---------- Fast2SMS ----------
   async function sendViaFast2Sms(phone10, message) {
@@ -419,7 +410,7 @@
     }
   }
 
-  async function fireSms(mac, data, eventId, manual = false) {
+  async function fireSms(mac, data, eventId) {
     const st = alertState[mac];
     const meta = deviceMeta[mac] || {};
     if (!currentUser || !meta.contact) throw new Error("Sign in and configure an emergency contact first.");
@@ -429,7 +420,7 @@
     st.rendered = null;
     updateAlertUI(mac);
 
-    await sendViaFast2Sms(cleanPhone, buildSmsText(mac, data, manual));
+    await sendViaFast2Sms(cleanPhone, buildSmsText(mac, data));
 
     st.status = "sent";
     st.sentAt = new Date();
@@ -460,47 +451,9 @@
     }).catch(err => console.warn("Could not cancel on Firebase:", err));
   };
 
-  window.sendQuickSms = async () => {
-    const out = document.getElementById("quick-result");
-    const typed = document.getElementById("quick-phone").value.trim();
-    const fallback = knownDeviceMacs.map(m => deviceMeta[m]?.contact).find(Boolean) || "";
-    const phone = extractClean10Digit(normalizePhone(typed || fallback) || "");
-    if (!/^\d{10}$/.test(phone)) { out.style.color = "#fca5a5"; out.innerText = "Enter a valid 10-digit mobile number."; return; }
-    if (!confirm(`Send an SMS to ${phone} now?`)) return;
-    out.style.color = "var(--muted)"; out.innerText = "Sending...";
-    try {
-      const res = await sendViaFast2Sms(phone, "Emergency alert");
-      out.style.color = "var(--ok)";
-      out.innerText = `✅ Fast2SMS accepted the SMS for ${phone}${res.request_id ? " (request " + res.request_id + ")" : ""}. Check the phone.`;
-    } catch (err) {
-      out.style.color = "#fca5a5";
-      out.innerText = "❌ " + (err?.message || "SMS failed.");
-    }
-  };
-
-  window.sendManualSms = mac => {
-    const meta = deviceMeta[mac] || {};
-    if (!meta.contact) return alert("Add an emergency contact first (Edit).");
-    if (!confirm(`Send an emergency SMS alert to ${meta.contact} now?`)) return;
-    const st = alertState[mac] || (alertState[mac] = { status: "idle", rendered: null, eventId: "", type: "" });
-    st.type = "manual";
-    st.eventId = "";
-    st.error = "";
-    st.rendered = null;
-    st.status = "sending";
-    updateAlertUI(mac);
-    fireSms(mac, lastData[mac] || {}, "", true).catch(err => {
-      st.status = "failed";
-      st.error = err?.message || "SMS could not be sent.";
-      st.rendered = null;
-      updateAlertUI(mac);
-    });
-  };
-
   window.retrySms = mac => {
     const st = alertState[mac];
     if (!st) return;
-    if (st.type === "manual") return sendManualSms(mac);
     startAlertCountdown(mac, st.type || "emergency", st.eventId);
   };
 
@@ -654,7 +607,6 @@
         </div>
         <button class="link-btn" onclick="editContact('${esc(mac)}')">Edit</button>
       </div>
-      <button class="btn btn-danger" style="margin-top:10px" onclick="sendManualSms('${esc(mac)}')">🚨 Send SMS Alert Now</button>
       <div id="alert-${id}" class="alert-box"></div>`;
     document.getElementById("device-container").appendChild(card);
     if (alertState[mac]) alertState[mac].rendered = null;
