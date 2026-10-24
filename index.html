@@ -227,11 +227,12 @@
       throw new Error("Request to Fast2SMS was blocked or failed before a reply (network issue or browser CORS restriction). A browser cannot reliably call Fast2SMS directly; send the SMS from a backend / Cloud Function instead.");
     }
 
-    let result = {};
-    try { result = await response.json(); } catch (_) {}
-    console.log("[Fast2SMS] response", response.status, result);
+    let result = {}, raw = "";
+    try { raw = await response.text(); result = JSON.parse(raw); } catch (_) {}
+    console.log("[Fast2SMS] response", response.status, raw);
     if (!response.ok || result.return === false) {
-      throw new Error(result.message || `Fast2SMS request failed (HTTP ${response.status}).`);
+      const detail = result.message ? (Array.isArray(result.message) ? result.message.join(" ") : result.message) : (raw ? raw.slice(0, 200) : "no response body");
+      throw new Error(`Fast2SMS error (HTTP ${response.status}): ${detail}`);
     }
     return result; // { return: true, request_id, message: [...] }
   }
