@@ -836,13 +836,15 @@
 
   let scannerStarting = null;
   let scannerClosing = Promise.resolve();
+  // Never wait forever on the camera library (it can hang or throw while the camera is starting or denied)
+  const withTimeout = (p, ms) => Promise.race([Promise.resolve(p).catch(() => {}), new Promise(r => setTimeout(r, ms))]);
 
   window.openScanner = async () => {
     if (html5QrScanner) return;
     const modal = document.getElementById("scanner-modal");
     modal.style.display = "block";
     // Wait for a previous scanner to finish shutting down before reusing the #reader element
-    await scannerClosing;
+    await withTimeout(scannerClosing, 3500);
     if (modal.style.display === "none" || html5QrScanner) return;
     try {
       const scanner = new Html5Qrcode("reader");
@@ -855,7 +857,10 @@
         document.getElementById("qr-name").value = "";
         document.getElementById("qr-contact").value = "";
         document.getElementById("qr-name-modal").style.display = "block";
-      }, () => {}).catch(() => {
+      }, () => {}).then(() => {
+        // Camera finished starting after the popup was already closed: switch it off again
+        if (html5QrScanner !== scanner) { try { Promise.resolve(scanner.stop()).catch(() => {}); } catch (_) {} }
+      }).catch(() => {
         alert("Camera permission is required. Use HTTPS or localhost.");
         if (html5QrScanner === scanner) window.closeScanner();
       });
@@ -872,9 +877,9 @@
     const scanner = html5QrScanner, starting = scannerStarting;
     html5QrScanner = null; scannerStarting = null;
     if (!scanner) return;
-    scannerClosing = Promise.resolve(starting).catch(() => {}).then(async () => {
-      try { await scanner.stop(); } catch (_) {}
-      try { await scanner.clear(); } catch (_) {}
+    scannerClosing = withTimeout(starting, 3000).then(async () => {
+      try { await withTimeout(scanner.stop(), 3000); } catch (_) {}
+      try { await withTimeout(scanner.clear(), 3000); } catch (_) {}
     });
   };
 
