@@ -177,10 +177,16 @@
 
   // Location of the Wi-Fi network this dashboard is connected to (browser Wi-Fi positioning, IP as fallback)
   let siteLocation = null;
-  let siteLocationNote = "Allow location access to show the connected Wi-Fi location";
+  let siteLocationNote = "Allow location access to show the location";
+
+  // A device counts as connected only while it is actively sending data to Firebase
+  function isDeviceConnected(mac) {
+    const seen = deviceLastSeenAt[mac];
+    return isDatabaseConnected && !!seen && (Date.now() - seen) <= STALE_THRESHOLD_MS;
+  }
 
   function refreshAllLocations() {
-    knownDeviceMacs.forEach(mac => displayDeviceLocation(safeIdOf(mac), lastData[mac] || {}));
+    knownDeviceMacs.forEach(mac => displayDeviceLocation(safeIdOf(mac), lastData[mac] || {}, isDeviceConnected(mac)));
   }
 
   async function ipFallbackLocation() {
@@ -358,7 +364,7 @@
   function blankDeviceCard(mac, card, riskBadge, statusText) {
     const id = safeIdOf(mac);
     const assign = (suffix, value) => { const el = document.getElementById(`${suffix}-${id}`); if (el) el.innerText = value; };
-    assign("temp", "0.0 °C"); assign("hr", formatVitals(0, 0)); assign("sunstroke", "No"); assign("fall", "NO"); displayDeviceLocation(id, {});
+    assign("temp", "0.0 °C"); assign("hr", formatVitals(0, 0)); assign("sunstroke", "No"); assign("fall", "NO"); displayDeviceLocation(id, {}, false);
     riskBadge.innerText = statusText;
     riskBadge.className = "device-badge";
     card.className = "device-card";
@@ -658,7 +664,7 @@
         <div class="metric-item"><span class="metric-label">Heart Rate & SpO2</span><span id="hr-${id}" class="metric-val">-- BPM · -- SpO2</span></div>
         <div class="metric-item"><span class="metric-label">Sunstroke detected</span><span id="sunstroke-${id}" class="metric-val">No</span></div>
         <div class="metric-item"><span class="metric-label">Fall status</span><span id="fall-${id}" class="metric-val">NO</span></div>
-        <div class="metric-item" style="grid-column:1/-1"><span class="metric-label">Location (connected Wi-Fi)</span><span id="gps-${id}" class="metric-val">Location unavailable</span></div>
+        <div class="metric-item" style="grid-column:1/-1"><span class="metric-label">Location</span><span id="gps-${id}" class="metric-val">Location unavailable</span></div>
       </div>
       <div class="contact-row">
         <div>
@@ -673,9 +679,14 @@
     updateAlertUI(mac);
   }
 
-  function displayDeviceLocation(id, data) {
+  // Location is shown only while the ESP device is connected to Firebase
+  function displayDeviceLocation(id, data, connected) {
     const el = document.getElementById(`gps-${id}`);
     if (!el) return;
+    if (!connected) {
+      el.innerText = "Location unavailable";
+      return;
+    }
     const loc = siteLocation || getWifiLocation(data);
     if (loc) {
       const acc = loc.accuracy ? ` (±${Math.round(loc.accuracy)} m)` : (loc.approx ? " (approx. area)" : "");
@@ -712,7 +723,7 @@
       badge.innerText = risk;
       badge.className = "device-badge " + (risk === "NORMAL" ? "badge-normal" : ((risk === "WARNING" || risk === "HIGH RISK") ? "badge-warning" : "badge-danger"));
       card.className = "device-card" + (risk === "EMERGENCY" ? " emergency" : (risk === "WARNING" || risk === "HIGH RISK" ? " warning" : ""));
-      displayDeviceLocation(id, data);
+      displayDeviceLocation(id, data, true);
       evaluateEmergency(mac, data);
     }, error => console.error("Device telemetry error:", mac, error));
   }
