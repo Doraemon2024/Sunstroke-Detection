@@ -834,29 +834,48 @@
     saveDeviceToFirebase(mac, name, phone);
   };
 
-  window.openScanner = () => {
-    document.getElementById("scanner-modal").style.display = "block";
+  let scannerStarting = null;
+  let scannerClosing = Promise.resolve();
+
+  window.openScanner = async () => {
+    if (html5QrScanner) return;
+    const modal = document.getElementById("scanner-modal");
+    modal.style.display = "block";
+    // Wait for a previous scanner to finish shutting down before reusing the #reader element
+    await scannerClosing;
+    if (modal.style.display === "none" || html5QrScanner) return;
     try {
-      html5QrScanner = new Html5Qrcode("reader");
-      html5QrScanner.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 230, height: 230 } }, decodedText => {
+      const scanner = new Html5Qrcode("reader");
+      html5QrScanner = scanner;
+      scannerStarting = scanner.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 230, height: 230 } }, decodedText => {
+        if (html5QrScanner !== scanner) return; // ignore extra scans after closing
         window.closeScanner();
         tempScannedMac = decodedText.trim().toUpperCase();
         document.getElementById("scanned-mac-display").innerText = "MAC: " + tempScannedMac;
         document.getElementById("qr-name").value = "";
         document.getElementById("qr-contact").value = "";
         document.getElementById("qr-name-modal").style.display = "block";
-      }, () => {}).catch(() => alert("Camera permission is required. Use HTTPS or localhost."));
-    } catch (err) { alert("Could not start QR scanner: " + err.message); }
+      }, () => {}).catch(() => {
+        alert("Camera permission is required. Use HTTPS or localhost.");
+        if (html5QrScanner === scanner) window.closeScanner();
+      });
+    } catch (err) {
+      html5QrScanner = null; scannerStarting = null;
+      modal.style.display = "none";
+      alert("Could not start QR scanner: " + err.message);
+    }
   };
 
+  // Closes the modal immediately, then stops the camera safely (even if it is still starting or was already stopped)
   window.closeScanner = () => {
-    if (html5QrScanner) {
-      html5QrScanner.stop().catch(() => {}).finally(() => {
-        html5QrScanner.clear().catch(() => {});
-        html5QrScanner = null;
-        document.getElementById("scanner-modal").style.display = "none";
-      });
-    } else document.getElementById("scanner-modal").style.display = "none";
+    document.getElementById("scanner-modal").style.display = "none";
+    const scanner = html5QrScanner, starting = scannerStarting;
+    html5QrScanner = null; scannerStarting = null;
+    if (!scanner) return;
+    scannerClosing = Promise.resolve(starting).catch(() => {}).then(async () => {
+      try { await scanner.stop(); } catch (_) {}
+      try { await scanner.clear(); } catch (_) {}
+    });
   };
 
   window.submitQRName = () => {
