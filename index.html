@@ -150,15 +150,67 @@
     return Number.isFinite(v) ? v : 0;
   }
 
-  // Location comes from the Wi-Fi network the device is connected to
+  // Location comes from the Wi-Fi network the device is connected to.
+  // Accepts several field layouts so it works with however the firmware writes it to Firebase.
   function getWifiLocation(data) {
-    const loc = data?.wifiLocation || data?.location;
-    if (!loc) return null;
-    const lat = Number(loc.lat), lng = Number(loc.lng);
-    if (!Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) return null;
-    const acc = Number(loc.accuracy);
-    return { lat, lng, accuracy: Number.isFinite(acc) && acc > 0 ? acc : null };
+    if (!data) return null;
+    const pick = o => {
+      if (o == null) return null;
+      if (typeof o === "string") {
+        const m = o.match(/(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)/);
+        return m ? { lat: Number(m[1]), lng: Number(m[2]), accuracy: NaN } : null;
+      }
+      if (typeof o !== "object") return null;
+      const lat = Number(o.lat ?? o.latitude ?? o.wifiLat);
+      const lng = Number(o.lng ?? o.lon ?? o.long ?? o.longitude ?? o.wifiLng);
+      return { lat, lng, accuracy: Number(o.accuracy ?? o.acc) };
+    };
+    for (const c of [data.wifiLocation, data.wifi_location, data.location, data.geo, data]) {
+      const p = pick(c);
+      if (p && Number.isFinite(p.lat) && Number.isFinite(p.lng) && !(p.lat === 0 && p.lng === 0) &&
+          Math.abs(p.lat) <= 90 && Math.abs(p.lng) <= 180) {
+        return { lat: p.lat, lng: p.lng, accuracy: Number.isFinite(p.accuracy) && p.accuracy > 0 ? p.accuracy : null };
+      }
+    }
+    return null;
   }
+
+  // Location of the Wi-Fi network this dashboard is connected to (browser Wi-Fi positioning, IP as fallback)
+  let siteLocation = null;
+  let siteLocationNote = "Allow location access to show the connected Wi-Fi location";
+
+  function refreshAllLocations() {
+    knownDeviceMacs.forEach(mac => displayDeviceLocation(safeIdOf(mac), lastData[mac] || {}));
+  }
+
+  async function ipFallbackLocation() {
+    try {
+      const r = await fetch("https://ipwho.is/");
+      const j = await r.json();
+      if (j && j.success !== false && Number.isFinite(Number(j.latitude)) && Number.isFinite(Number(j.longitude))) {
+        siteLocation = { lat: Number(j.latitude), lng: Number(j.longitude), accuracy: null, approx: true };
+        return;
+      }
+    } catch (_) {}
+    siteLocation = null;
+  }
+
+  function fetchSiteLocation() {
+    if (!navigator.geolocation) { ipFallbackLocation().then(refreshAllLocations); return; }
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        siteLocation = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy, approx: false };
+        refreshAllLocations();
+      },
+      async () => {
+        siteLocationNote = "Location permission denied; showing approximate area if available";
+        await ipFallbackLocation();
+        refreshAllLocations();
+      },
+      { enableHighAccuracy: false, timeout: 15000, maximumAge: 300000 }
+    );
+  }
+  setInterval(() => { if (currentUser) fetchSiteLocation(); }, 10 * 60 * 1000);
 
   function isEmergencyCondition(data) {
     if (!data) return false;
@@ -236,6 +288,7 @@
       document.getElementById("dashboard-screen").style.display = "block";
       document.getElementById("user-email-display").innerText = user.email || "Signed in";
       attachUserDeviceListeners(user.uid);
+      fetchSiteLocation();
     } else {
       document.getElementById("auth-screen").style.display = "block";
       document.getElementById("dashboard-screen").style.display = "none";
@@ -298,7 +351,7 @@
   function blankDeviceCard(mac, card, riskBadge, statusText) {
     const id = safeIdOf(mac);
     const assign = (suffix, value) => { const el = document.getElementById(`${suffix}-${id}`); if (el) el.innerText = value; };
-    assign("temp", "0.0 °C"); assign("hr", "0 BPM · 0%"); assign("sunstroke", "No"); assign("fall", "NO"); assign("gps", "Location unavailable");
+    assign("temp", "0.0 °C"); assign("hr", "0 BPM · 0%"); assign("sunstroke", "No"); assign("fall", "NO"); displayDeviceLocation(id, {});
     riskBadge.innerText = statusText;
     riskBadge.className = "device-badge";
     card.className = "device-card";
@@ -616,12 +669,12 @@
   function displayDeviceLocation(id, data) {
     const el = document.getElementById(`gps-${id}`);
     if (!el) return;
-    const wl = getWifiLocation(data);
-    if (wl) {
-      const acc = wl.accuracy ? ` (±${Math.round(wl.accuracy)} m)` : "";
-      el.innerHTML = `<a href="https://maps.google.com/?q=${wl.lat},${wl.lng}" target="_blank" rel="noopener" style="color:var(--blue);text-decoration:none">View Wi-Fi location ↗</a><span class="small-muted">${acc}</span>`;
+    const loc = siteLocation || getWifiLocation(data);
+    if (loc) {
+      const acc = loc.accuracy ? ` (±${Math.round(loc.accuracy)} m)` : (loc.approx ? " (approx. area)" : "");
+      el.innerHTML = `<a href="https://maps.google.com/?q=${loc.lat},${loc.lng}" target="_blank" rel="noopener" style="color:var(--blue);text-decoration:none">View location ↗</a> <span class="small-muted">${loc.lat.toFixed(5)}, ${loc.lng.toFixed(5)}${acc}</span>`;
     } else {
-      el.innerText = "Location unavailable";
+      el.innerText = siteLocationNote;
     }
   }
 
