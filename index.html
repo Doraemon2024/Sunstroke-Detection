@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Smart Heat & Fall Monitoring</title>
+  <title>Sunstroke Detection and Health Monitoring System</title>
   <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
   <style>
     :root{--bg:#0f172a;--card:#1e293b;--text:#f8fafc;--muted:#94a3b8;--blue:#38bdf8;--danger:#ef4444;--warn:#f59e0b;--ok:#10b981;--border:#334155}
@@ -27,7 +27,7 @@
 <body>
 <div class="container">
   <section id="auth-screen" class="card">
-    <h2>Smart Heat & Fall Protection</h2>
+    <h2>Sunstroke Detection and Health Monitoring System</h2>
     <p class="subtitle">Real-time health, heatstroke & fall monitoring</p>
     <div class="auth-toggle">
       <button id="tab-login" class="active" onclick="switchAuthTab('login')">Sign In</button>
@@ -42,16 +42,13 @@
   <section id="dashboard-screen" style="display:none">
     <div class="card">
       <div class="topbar">
-        <div><h2>My Monitors</h2><span id="user-email-display" class="small-muted"></span></div>
+        <div><h2>Sunstroke Detection and Health Monitoring System</h2><span id="user-email-display" class="small-muted"></span></div>
         <button class="btn btn-danger" style="width:auto" onclick="signOutUser()">Log Out</button>
       </div>
       <div class="btn-group">
         <button class="btn btn-primary" onclick="openScanner()">📷 Scan QR</button>
         <button class="btn btn-secondary" onclick="openManualModal()">⌨️ Enter MAC</button>
       </div>
-      <p class="small-muted" style="margin-bottom:12px">
-        ⚠️ <strong>Emergency Policy:</strong> When an emergency (Fall, High Heatstroke, or Critical Sensor trigger) occurs, the device buzzer sounds and a <strong>10-second countdown</strong> begins. If the physical button on GPIO4 of the ESP32-C6 is pressed within 10 seconds, the alert is cancelled and no SMS is sent. If 10 seconds elapse without cancellation, an emergency SMS is automatically dispatched via Fast2SMS to the registered contact.
-      </p>
       <div id="device-container"></div>
     </div>
   </section>
@@ -106,7 +103,7 @@
   // Fast2SMS configuration
   const FAST2SMS_API_KEY = "zcBRKji2aotU8Px5y6ebLDuZpCQ1AskgSh9rMTlvXqOV7GYndISIplyOJW1FHU7jkQwfM8BrvXGx65qa";
   const FAST2SMS_URL = "https://www.fast2sms.com/dev/bulkV2";
-  const ALERT_COUNTDOWN_MS = 10000; // 10-second countdown window
+  const ALERT_COUNTDOWN_MS = 10000;
   const DEFAULT_COUNTRY_CODE = "+91";
   const STALE_THRESHOLD_MS = 30000;
 
@@ -129,11 +126,11 @@
   const lastHandledEventId = {};
 
   const safeIdOf = mac => String(mac).replace(/[^a-zA-Z0-9]/g, "");
-  
+
   function esc(value) {
     return String(value ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
   }
-  
+
   function normalizePhone(raw) {
     let p = String(raw || "").replace(/[\s\-().]/g, "");
     if (/^\d{10}$/.test(p)) p = DEFAULT_COUNTRY_CODE + p;
@@ -144,8 +141,23 @@
 
   function extractClean10Digit(phone) {
     if (!phone) return "";
-    const digits = String(phone).replace(/\D/g, "");
-    return digits.slice(-10);
+    return String(phone).replace(/\D/g, "").slice(-10);
+  }
+
+  // SpO2 may be stored under different key spellings by the firmware
+  function getSpo2(data) {
+    const v = Number(data?.spo2 ?? data?.spO2 ?? data?.SpO2 ?? data?.SPO2);
+    return Number.isFinite(v) ? v : 0;
+  }
+
+  // Location comes from the Wi-Fi network the device is connected to
+  function getWifiLocation(data) {
+    const loc = data?.wifiLocation || data?.location;
+    if (!loc) return null;
+    const lat = Number(loc.lat), lng = Number(loc.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) return null;
+    const acc = Number(loc.accuracy);
+    return { lat, lng, accuracy: Number.isFinite(acc) && acc > 0 ? acc : null };
   }
 
   function isEmergencyCondition(data) {
@@ -153,36 +165,76 @@
     const t = Number(data.temperature) || 0;
     const hr = Number(data.heartRate) || 0;
     const risk = String(data.riskLevel || "").toUpperCase();
-    
     const isHeatEmergency = (t >= 38.5 && hr >= 120) || t >= 40.0;
     const isFallAlert = Boolean(data.fallAlertActive || data.fallDetected || data.emergencyAlertActive);
-    const isRiskEmergency = risk === "EMERGENCY";
-
-    return isHeatEmergency || isFallAlert || isRiskEmergency;
+    return isHeatEmergency || isFallAlert || risk === "EMERGENCY";
   }
 
-  function getEmergencyReason(data) {
-    const parts = [];
+  function getAlertKinds(data) {
     const t = Number(data?.temperature) || 0;
     const hr = Number(data?.heartRate) || 0;
-    if (data?.fallDetected || data?.fallAlertActive) parts.push("Fall Detected");
-    if (t >= 40.0) parts.push(`Critical Body Temp (${t.toFixed(1)}°C)`);
-    else if (t >= 38.5 && hr >= 120) parts.push(`Heatstroke Risk (Temp ${t.toFixed(1)}°C, HR ${hr} BPM)`);
-    else if (data?.riskLevel === "EMERGENCY") parts.push("Emergency Risk Detected");
-    return parts.join(" + ") || "Emergency Situation";
+    return {
+      fall: Boolean(data?.fallDetected || data?.fallAlertActive),
+      sun: (t >= 38.5 && hr >= 120) || t >= 40.0
+    };
   }
 
+  // Text shown on the dashboard alert
+  function getEmergencyReason(data) {
+    const k = getAlertKinds(data);
+    const parts = [];
+    if (k.sun) parts.push("Sunstroke Detected");
+    if (k.fall) parts.push("Fall Detected");
+    return parts.join(" + ") || "Emergency Detected";
+  }
+
+  // Text sent by SMS
   function buildSmsText(mac, data = lastData[mac] || {}) {
     const meta = deviceMeta[mac] || {};
+    const k = getAlertKinds(data);
+    const lines = [];
+    if (k.sun) lines.push("Sunstroke detected for your loved one!");
+    if (k.fall) lines.push("Fall detected for your loved one!");
+    if (!lines.length) lines.push("Emergency detected for your loved one!");
     const t = (Number(data.temperature) || 0).toFixed(1);
     const hr = Number(data.heartRate) || 0;
-    let loc = "Location unavailable";
-    if (data.location && Number(data.location.lat) !== 0 && Number(data.location.lng) !== 0) {
-      loc = `https://maps.google.com/?q=${Number(data.location.lat)},${Number(data.location.lng)}`;
-    }
-    return `EMERGENCY ALERT: ${meta.name || "Wearer"} needs immediate assistance! Reason: ${getEmergencyReason(data)}. Temp: ${t}C, Heart Rate: ${hr} BPM. Location: ${loc}. Please respond immediately.`;
+    const spo2 = getSpo2(data);
+    const wl = getWifiLocation(data);
+    const loc = wl ? `https://maps.google.com/?q=${wl.lat},${wl.lng}` : "unavailable";
+    return `${lines.join(" ")} ${meta.name || "Wearer"} - Temp ${t}C, HR ${hr} BPM, SpO2 ${spo2}%. Location: ${loc}`;
   }
 
+  // ---------- Fast2SMS ----------
+  async function sendViaFast2Sms(phone10, message) {
+    if (!FAST2SMS_API_KEY) throw new Error("Fast2SMS API key is not configured.");
+    if (!/^\d{10}$/.test(phone10)) throw new Error("Emergency contact must be a valid 10-digit Indian mobile number.");
+
+    let response;
+    try {
+      response = await fetch(FAST2SMS_URL, {
+        method: "POST",
+        headers: {
+          "authorization": FAST2SMS_API_KEY,
+          "accept": "application/json",
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ route: "q", message, numbers: phone10, flash: "0" })
+      });
+    } catch (e) {
+      // fetch() throws TypeError for network failure or CORS block
+      throw new Error("Request to Fast2SMS was blocked or failed before a reply (network issue or browser CORS restriction). A browser cannot reliably call Fast2SMS directly; send the SMS from a backend / Cloud Function instead.");
+    }
+
+    let result = {};
+    try { result = await response.json(); } catch (_) {}
+    console.log("[Fast2SMS] response", response.status, result);
+    if (!response.ok || result.return === false) {
+      throw new Error(result.message || `Fast2SMS request failed (HTTP ${response.status}).`);
+    }
+    return result; // { return: true, request_id, message: [...] }
+  }
+
+  // ---------- Auth ----------
   onAuthStateChanged(auth, user => {
     currentUser = user;
     if (user) {
@@ -226,9 +278,7 @@
       knownDeviceMacs.forEach(mac => {
         const st = alertState[mac];
         if (st && (st.status === "counting" || st.status === "checking")) {
-          st.status = "stale";
-          st.rendered = null;
-          updateAlertUI(mac);
+          st.status = "stale"; st.rendered = null; updateAlertUI(mac);
         }
       });
     }
@@ -245,9 +295,7 @@
         if (card && badge) blankDeviceCard(mac, card, badge, "NO SIGNAL");
         const st = alertState[mac];
         if (st && (st.status === "counting" || st.status === "checking")) {
-          st.status = "stale";
-          st.rendered = null;
-          updateAlertUI(mac);
+          st.status = "stale"; st.rendered = null; updateAlertUI(mac);
         }
       }
     });
@@ -256,7 +304,7 @@
   function blankDeviceCard(mac, card, riskBadge, statusText) {
     const id = safeIdOf(mac);
     const assign = (suffix, value) => { const el = document.getElementById(`${suffix}-${id}`); if (el) el.innerText = value; };
-    assign("temp", "0.0 °C"); assign("hr", "0 BPM"); assign("sunstroke", "No"); assign("fall", "NO"); assign("gps", "Location unavailable");
+    assign("temp", "0.0 °C"); assign("hr", "0 BPM · 0%"); assign("sunstroke", "No"); assign("fall", "NO"); assign("gps", "Location unavailable");
     riskBadge.innerText = statusText;
     riskBadge.className = "device-badge";
     card.className = "device-card";
@@ -267,7 +315,8 @@
     updateAlertUI(mac);
   }
 
-  function startAlertCountdown(mac, type, eventId, ageMs = 0) {
+  // Alert appears -> SMS is sent straight away to the emergency contact
+  function startAlertCountdown(mac, type, eventId) {
     const st = alertState[mac] || (alertState[mac] = { status: "idle", rendered: null, eventId: "", type: "" });
     st.type = type;
     st.eventId = eventId || "";
@@ -276,72 +325,64 @@
     const meta = deviceMeta[mac] || {};
     if (!meta.contact) {
       st.status = "nocontact";
-    } else {
-      st.status = "counting";
-      // 10 second countdown adjusted for any elapsed time
-      st.deadline = Date.now() + Math.max(0, ALERT_COUNTDOWN_MS - Math.max(0, ageMs) + 300);
+      updateAlertUI(mac);
+      return;
     }
+    st.status = "sending";
     updateAlertUI(mac);
+    fireSms(mac, lastData[mac] || {}, eventId).catch(err => {
+      st.status = "failed";
+      st.error = err?.message || "SMS could not be sent.";
+      st.rendered = null;
+      updateAlertUI(mac);
+    });
   }
 
-  // Monitor incoming telemetry for emergency conditions & physical button cancellations
+  const episodeId = {};
+
   function evaluateEmergency(mac, data) {
     const st = alertState[mac] || (alertState[mac] = { status: "idle", rendered: null, eventId: "", type: "" });
     const isEmergency = isEmergencyCondition(data);
-    const eventId = String(data.emergencyEventId || data.fallEventId || (isEmergency ? `emg-${Date.now()}` : ""));
-    const cancelledId = String(data.emergencyCancelledEventId || data.fallCancelledEventId || "");
-    const isCancelledByButton = (data.emergencyCancelled === true || data.fallCancelled === true) || 
-                                (eventId && cancelledId === eventId);
+    const fwId = String(data.emergencyEventId || data.fallEventId || "");
 
-    // 1. If physical push button on GPIO4 was pressed: cancel countdown and do NOT send SMS
-    if (isCancelledByButton) {
+    // One stable event id per emergency episode, so the 10s timer is not restarted by every telemetry update
+    if (isEmergency) {
+      if (fwId) episodeId[mac] = fwId;
+      else if (!episodeId[mac]) episodeId[mac] = `emg-${Date.now()}`;
+    } else {
+      delete episodeId[mac];
+    }
+    const eventId = episodeId[mac] || fwId;
+    const cancelledId = String(data.emergencyCancelledEventId || data.fallCancelledEventId || "");
+    const isCancelled = (data.emergencyCancelled === true || data.fallCancelled === true) ||
+                        (eventId && cancelledId === eventId);
+
+    if (isCancelled) {
       if (lastHandledEventId[mac] !== eventId || st.status === "counting" || st.status === "checking") {
         lastHandledEventId[mac] = eventId;
-        if (st.status !== "sent") {
-          st.status = "cancelled";
-          st.eventId = eventId;
-          st.rendered = null;
-          updateAlertUI(mac);
-        }
+        if (st.status !== "sent") { st.status = "cancelled"; st.eventId = eventId; st.rendered = null; updateAlertUI(mac); }
       }
       return;
     }
 
-    // 2. If already marked as sent for this event ID, don't re-trigger
     if (eventId && String(data.lastSmsEventId || "") === eventId) {
-      if (st.status !== "sent") {
-        st.status = "sent";
-        st.eventId = eventId;
-        st.rendered = null;
-        updateAlertUI(mac);
-      }
+      if (st.status !== "sent") { st.status = "sent"; st.eventId = eventId; st.rendered = null; updateAlertUI(mac); }
       return;
     }
 
-    // 3. New emergency condition detected: start 10-second countdown
     if (isEmergency) {
-      if (eventId && eventId !== lastHandledEventId[mac]) {
+      if (eventId !== lastHandledEventId[mac]) {
         lastHandledEventId[mac] = eventId;
         const startedAt = Number(data.emergencyStartedAt || data.fallStartedAt);
         const updatedAt = Number(data.lastUpdated);
         const ageMs = Number.isFinite(startedAt) && Number.isFinite(updatedAt) ? Math.max(0, updatedAt - startedAt) * 1000 : 0;
-        startAlertCountdown(mac, "emergency", eventId, ageMs);
-        return;
+        startAlertCountdown(mac, "emergency", eventId);
       }
-
-      // If already counting for this event, let the timer run
-      if (["counting", "checking", "nocontact", "sending"].includes(st.status)) {
-        return;
-      }
-    } else {
-      // Normal situation: if not in middle of sending/sent, return to idle
-      if (st.status !== "sending" && st.status !== "sent" && st.status !== "checking") {
-        resetAlert(mac);
-      }
+    } else if (st.status !== "sending" && st.status !== "sent" && st.status !== "checking") {
+      resetAlert(mac);
     }
   }
 
-  // When 10-second countdown expires without button press, verify and send SMS
   async function confirmThenSendSms(mac) {
     const st = alertState[mac];
     if (!st || st.status !== "counting") return;
@@ -351,101 +392,47 @@
     updateAlertUI(mac);
 
     try {
-      // Small pause to allow any last-millisecond button press to sync from RTDB
-      await new Promise(resolve => setTimeout(resolve, 600));
+      // Short pause so a last-moment cancel can sync, then send automatically
+      await new Promise(resolve => setTimeout(resolve, 300));
+      let latest = lastData[mac] || {};
+      try { const snap = await get(ref(db, `Devices/${mac}`)); if (snap.val()) latest = snap.val(); } catch (_) {}
 
-      const snap = await get(ref(db, `Devices/${mac}`));
-      const latest = snap.val();
-      if (!latest) throw new Error("No current device data in Firebase.");
-
-      // Check if button was pressed right before expiry
       const cancelledId = String(latest.emergencyCancelledEventId || latest.fallCancelledEventId || "");
       if (latest.emergencyCancelled === true || latest.fallCancelled === true || (expectedEventId && cancelledId === expectedEventId)) {
-        st.status = "cancelled";
-        st.rendered = null;
-        updateAlertUI(mac);
-        return;
+        st.status = "cancelled"; st.rendered = null; updateAlertUI(mac); return;
       }
-
-      // Check if already sent
       if (expectedEventId && String(latest.lastSmsEventId || "") === expectedEventId) {
-        st.status = "sent";
-        st.rendered = null;
-        updateAlertUI(mac);
-        return;
+        st.status = "sent"; st.rendered = null; updateAlertUI(mac); return;
       }
-
-      // Verify that emergency condition is still active or was confirmed
-      if (!isEmergencyCondition(latest) && !latest.emergencyConfirmed && !latest.fallDetected) {
-        st.status = "cancelled";
-        st.rendered = null;
-        updateAlertUI(mac);
-        return;
-      }
-
-      if (!isDatabaseConnected) throw new Error("Firebase is offline; cannot verify emergency status.");
-      
-      // Dispatch the SMS via Fast2SMS
       await fireSms(mac, latest, expectedEventId);
     } catch (err) {
       const current = alertState[mac];
       if (current) {
         current.status = "failed";
-        current.error = err?.message || "Could not verify alert state.";
+        current.error = err?.message || "SMS could not be sent.";
         current.rendered = null;
         updateAlertUI(mac);
       }
     }
   }
 
-  // Fast2SMS API call
   async function fireSms(mac, data, eventId) {
     const st = alertState[mac];
     const meta = deviceMeta[mac] || {};
     if (!currentUser || !meta.contact) throw new Error("Sign in and configure an emergency contact first.");
-    
     const cleanPhone = extractClean10Digit(meta.contact);
-    if (!cleanPhone || cleanPhone.length !== 10) {
-      throw new Error("Emergency contact must be a valid 10-digit Indian mobile number.");
-    }
-    if (!FAST2SMS_API_KEY) {
-      throw new Error("Fast2SMS API key is not configured.");
-    }
 
     st.status = "sending";
     st.rendered = null;
     updateAlertUI(mac);
 
-    const messageContent = buildSmsText(mac, data);
-    console.log(`[Fast2SMS] Sending to ${cleanPhone}: ${messageContent}`);
-
-    const response = await fetch(FAST2SMS_URL, {
-      method: "POST",
-      headers: {
-        "authorization": FAST2SMS_API_KEY,
-        "accept": "application/json",
-        "content-type": "application/json"
-      },
-      body: JSON.stringify({
-        route: "q",
-        message: messageContent,
-        numbers: cleanPhone,
-        flash: "0"
-      })
-    });
-
-    let result = {};
-    try { result = await response.json(); } catch (_) {}
-    if (!response.ok || result.return === false) {
-      throw new Error(result.message || `Fast2SMS request failed (HTTP ${response.status}).`);
-    }
+    await sendViaFast2Sms(cleanPhone, buildSmsText(mac, data));
 
     st.status = "sent";
     st.sentAt = new Date();
     st.rendered = null;
     updateAlertUI(mac);
 
-    // Persist SMS event ID to avoid re-triggering for the same event
     if (eventId) {
       update(ref(db, `Devices/${mac}`), {
         lastSmsEventId: eventId,
@@ -462,8 +449,6 @@
     st.status = "cancelled";
     st.rendered = null;
     updateAlertUI(mac);
-
-    // Also update Firebase so the ESP32 knows the alert was cancelled
     update(ref(db, `Devices/${mac}`), {
       emergencyCancelled: true,
       fallCancelled: true,
@@ -475,10 +460,7 @@
   window.retrySms = mac => {
     const st = alertState[mac];
     if (!st) return;
-    st.status = "counting";
-    st.deadline = Date.now() + ALERT_COUNTDOWN_MS;
-    st.rendered = null;
-    updateAlertUI(mac);
+    startAlertCountdown(mac, st.type || "emergency", st.eventId);
   };
 
   function updateAlertUI(mac) {
@@ -488,19 +470,12 @@
     const st = alertState[mac] || { status: "idle" };
     const meta = deviceMeta[mac] || {};
 
-    if (st.status === "idle") {
-      box.style.display = "none";
-      box.innerHTML = "";
-      return;
-    }
+    if (st.status === "idle") { box.style.display = "none"; box.innerHTML = ""; return; }
 
     if (st.status === "counting") {
       const seconds = Math.max(0, Math.ceil((st.deadline - Date.now()) / 1000));
       const countEl = document.getElementById(`count-${id}`);
-      if (st.rendered === "counting" && countEl) {
-        countEl.innerText = seconds;
-        return;
-      }
+      if (st.rendered === "counting" && countEl) { countEl.innerText = seconds; return; }
     } else if (st.rendered === st.status) {
       return;
     }
@@ -546,8 +521,8 @@
         break;
       case "sending":
         box.innerHTML = `
-          <div class="alert-title">Dispatching Emergency SMS...</div>
-          <div class="alert-text">10 seconds elapsed without button cancellation. Contacting Fast2SMS for ${esc(meta.contact)}...</div>
+          <div class="alert-title">🚨 ${reason}</div>
+          <div class="alert-text">Sending SMS to <strong>${esc(meta.contact)}</strong>...</div>
         `;
         break;
       case "sent":
@@ -563,7 +538,7 @@
         box.innerHTML = `
           <div class="alert-title">⚠️ SMS Delivery Error</div>
           <div class="alert-text">${esc(st.error || "Unknown error")}</div>
-          <button class="btn btn-primary" style="margin-top:8px" onclick="retrySms('${esc(mac)}')">Retry 10-second Countdown</button>
+          <button class="btn btn-primary" style="margin-top:8px" onclick="retrySms('${esc(mac)}')">Retry SMS</button>
         `;
         break;
       case "stale":
@@ -579,16 +554,12 @@
     }
   }
 
-  // 10-second countdown ticker
   setInterval(() => {
     Object.keys(alertState).forEach(mac => {
       const st = alertState[mac];
       if (!st || st.status !== "counting") return;
-      if (Date.now() >= st.deadline) {
-        confirmThenSendSms(mac);
-      } else {
-        updateAlertUI(mac);
-      }
+      if (Date.now() >= st.deadline) confirmThenSendSms(mac);
+      else updateAlertUI(mac);
     });
   }, 150);
 
@@ -629,18 +600,18 @@
         <button onclick="removeDevice('${esc(mac)}')" style="background:none;color:var(--danger);font-size:1.1rem;padding:3px 6px">✕</button>
       </div>
       <div class="metric-grid">
-        <div class="metric-item"><span class="metric-label">Object temperature</span><span id="temp-${id}" class="metric-val">0.0 °C</span></div>
-        <div class="metric-item"><span class="metric-label">Heart rate</span><span id="hr-${id}" class="metric-val">0 BPM</span></div>
-        <div class="metric-item"><span class="metric-label">Sunstroke indicator</span><span id="sunstroke-${id}" class="metric-val">No</span></div>
+        <div class="metric-item"><span class="metric-label">Temperature</span><span id="temp-${id}" class="metric-val">0.0 °C</span></div>
+        <div class="metric-item"><span class="metric-label">Heart Rate & SpO2</span><span id="hr-${id}" class="metric-val">0 BPM · 0%</span></div>
+        <div class="metric-item"><span class="metric-label">Sunstroke detected</span><span id="sunstroke-${id}" class="metric-val">No</span></div>
         <div class="metric-item"><span class="metric-label">Fall status</span><span id="fall-${id}" class="metric-val">NO</span></div>
-        <div class="metric-item" style="grid-column:1/-1"><span class="metric-label">Location</span><span id="gps-${id}" class="metric-val">Location unavailable</span></div>
+        <div class="metric-item" style="grid-column:1/-1"><span class="metric-label">Location (connected Wi-Fi)</span><span id="gps-${id}" class="metric-val">Location unavailable</span></div>
       </div>
       <div class="contact-row">
         <div>
           <span class="metric-label">Emergency contact (SMS recipient)</span>
           <span style="font-weight:700">${meta.contact ? esc(meta.contact) : '<span style="color:var(--warn)">Not set</span>'}</span>
         </div>
-        <button class="link-btn" onclick="editContact('${esc(mac)}')">${meta.contact ? "Edit" : "Add"}</button>
+        <button class="link-btn" onclick="editContact('${esc(mac)}')">Edit</button>
       </div>
       <div id="alert-${id}" class="alert-box"></div>`;
     document.getElementById("device-container").appendChild(card);
@@ -651,9 +622,10 @@
   function displayDeviceLocation(id, data) {
     const el = document.getElementById(`gps-${id}`);
     if (!el) return;
-    if (data.location && Number(data.location.lat) !== 0 && Number(data.location.lng) !== 0) {
-      const lat = Number(data.location.lat), lng = Number(data.location.lng);
-      el.innerHTML = `<a href="https://maps.google.com/?q=${lat},${lng}" target="_blank" rel="noopener" style="color:var(--blue);text-decoration:none">View location ↗</a>`;
+    const wl = getWifiLocation(data);
+    if (wl) {
+      const acc = wl.accuracy ? ` (±${Math.round(wl.accuracy)} m)` : "";
+      el.innerHTML = `<a href="https://maps.google.com/?q=${wl.lat},${wl.lng}" target="_blank" rel="noopener" style="color:var(--blue);text-decoration:none">View Wi-Fi location ↗</a><span class="small-muted">${acc}</span>`;
     } else {
       el.innerText = "Location unavailable";
     }
@@ -666,31 +638,27 @@
       const card = document.getElementById(`card-${id}`);
       const badge = document.getElementById(`risk-${id}`);
       if (!card || !badge) return;
-      if (!isDatabaseConnected || !data) {
-        blankDeviceCard(mac, card, badge, "NO SIGNAL");
-        return;
-      }
+      if (!isDatabaseConnected || !data) { blankDeviceCard(mac, card, badge, "NO SIGNAL"); return; }
 
       lastData[mac] = data;
       deviceLastSeenAt[mac] = Date.now();
       const temperature = Number(data.temperature) || 0;
       const heartRate = Number(data.heartRate) || 0;
+      const spo2 = getSpo2(data);
       document.getElementById(`temp-${id}`).innerText = `${temperature.toFixed(1)} °C`;
-      document.getElementById(`hr-${id}`).innerText = `${heartRate} BPM`;
-      
+      document.getElementById(`hr-${id}`).innerText = `${heartRate} BPM · ${spo2}%`;
+
       const isFall = Boolean(data.fallDetected || data.fallAlertActive);
       document.getElementById(`fall-${id}`).innerText = data.fallAlertActive ? "ALERT WINDOW (10s)" : (data.fallDetected ? "FALL DETECTED" : "NO");
-      
+
       const isSunstroke = (temperature >= 38.5 && heartRate >= 120) || temperature >= 40.0;
-      document.getElementById(`sunstroke-${id}`).innerText = isSunstroke ? "CRITICAL RISK" : (temperature >= 38.0 ? "Warning" : "No");
-      
+      document.getElementById(`sunstroke-${id}`).innerText = isSunstroke ? "Yes" : "No";
+
       const risk = String(data.riskLevel || (isSunstroke || isFall ? "EMERGENCY" : "NORMAL")).toUpperCase();
       badge.innerText = risk;
       badge.className = "device-badge " + (risk === "NORMAL" ? "badge-normal" : ((risk === "WARNING" || risk === "HIGH RISK") ? "badge-warning" : "badge-danger"));
       card.className = "device-card" + (risk === "EMERGENCY" ? " emergency" : (risk === "WARNING" || risk === "HIGH RISK" ? " warning" : ""));
       displayDeviceLocation(id, data);
-      
-      // Check emergency conditions and handle 10s countdown
       evaluateEmergency(mac, data);
     }, error => console.error("Device telemetry error:", mac, error));
   }
@@ -708,9 +676,10 @@
     if (input === null) return;
     const phone = normalizePhone(input);
     if (!phone) return alert("Enter a valid 10-digit number, e.g. 9876543210.");
+    deviceMeta[mac] = { ...meta, contact: phone };
     saveDeviceToFirebase(mac, meta.name || "Unnamed", phone, true);
     const st = alertState[mac];
-    if (st && st.status === "nocontact") resetAlert(mac);
+    if (st && st.status === "nocontact") startAlertCountdown(mac, st.type || "emergency", st.eventId);
   };
 
   window.removeDevice = mac => {
