@@ -53,6 +53,7 @@
         <div class="device-title" style="margin-bottom:8px">Manual SMS (works without ESP32)</div>
         <input type="tel" id="quick-phone" placeholder="Mobile number (10 digits)" style="margin-bottom:9px">
         <button class="btn btn-danger" onclick="sendQuickSms()">📩 Send SMS Now</button>
+        <div id="key-info" class="small-muted" style="margin-top:9px"></div>
         <div id="quick-result" class="small-muted" style="margin-top:9px;overflow-wrap:anywhere"></div>
       </div>
       <div id="device-container"></div>
@@ -194,21 +195,16 @@
     return parts.join(" + ") || "Emergency Detected";
   }
 
-  // Text sent by SMS
+  // Text sent by SMS: only the detected condition
   function buildSmsText(mac, data = lastData[mac] || {}, manual = false) {
-    const meta = deviceMeta[mac] || {};
     const k = getAlertKinds(data);
-    const lines = [];
-    if (k.sun) lines.push("Sunstroke detected for your loved one!");
-    if (k.fall) lines.push("Fall detected for your loved one!");
-    if (!lines.length) lines.push(manual ? "Emergency alert for your loved one! Please check on them immediately." : "Emergency detected for your loved one!");
-    const t = (Number(data.temperature) || 0).toFixed(1);
-    const hr = Number(data.heartRate) || 0;
-    const spo2 = getSpo2(data);
-    const wl = getWifiLocation(data);
-    const loc = wl ? `https://maps.google.com/?q=${wl.lat},${wl.lng}` : "unavailable";
-    return `${lines.join(" ")} ${meta.name || "Wearer"} - Temp ${t}C, HR ${hr} BPM, SpO2 ${spo2}%. Location: ${loc}`;
+    const parts = [];
+    if (k.sun) parts.push("Sunstroke detected");
+    if (k.fall) parts.push("Fall detected");
+    return parts.join(". ") || "Emergency alert";
   }
+
+  document.getElementById("key-info").innerText = "Page version: key in use starts with " + FAST2SMS_API_KEY.slice(0, 6) + "…";
 
   // ---------- Fast2SMS ----------
   async function sendViaFast2Sms(phone10, message) {
@@ -472,7 +468,7 @@
     if (!confirm(`Send an SMS to ${phone} now?`)) return;
     out.style.color = "var(--muted)"; out.innerText = "Sending...";
     try {
-      const res = await sendViaFast2Sms(phone, "Emergency alert for your loved one! Please check on them immediately. (Manual SMS from Sunstroke Detection and Health Monitoring System)");
+      const res = await sendViaFast2Sms(phone, "Emergency alert");
       out.style.color = "var(--ok)";
       out.innerText = `✅ Fast2SMS accepted the SMS for ${phone}${res.request_id ? " (request " + res.request_id + ")" : ""}. Check the phone.`;
     } catch (err) {
