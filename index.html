@@ -21,6 +21,7 @@
     .modal-overlay{display:none;position:fixed;inset:0;background:#000d;z-index:1000;padding:18px;overflow-y:auto}.modal-box{max-width:420px;margin:35px auto;background:var(--card);padding:22px;border-radius:12px;border:1px solid var(--border);text-align:center}#reader{width:100%;border-radius:8px;overflow:hidden;margin-bottom:12px;background:#000}.hint{font-size:.76rem;color:var(--muted);margin:-3px 0 12px;text-align:left}.small-muted{color:var(--muted);font-size:.8rem;line-height:1.45}.topbar{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:15px}.topbar h2{text-align:left;margin:0}.empty{text-align:center;color:var(--muted);font-size:.9rem;padding:14px 4px}
     .btn-cancel-alert{margin-top:10px;background:#ef444426;color:var(--danger);border:1px solid var(--danger);padding:8px 14px;font-size:.85rem;border-radius:6px;cursor:pointer;font-weight:700}
     .btn-cancel-alert:hover{background:var(--danger);color:#fff}
+    .history{margin-top:10px;background:#0f172a;border-radius:6px;padding:10px 12px;font-size:.85rem}.history summary{cursor:pointer;font-weight:700;color:var(--blue);font-size:.82rem}.history-list{margin-top:8px;max-height:260px;overflow-y:auto}.history-item{border-top:1px solid var(--border);padding:8px 0;font-size:.8rem;line-height:1.45}.history-item:first-child{border-top:0}.history-top{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:2px}.history-time{color:var(--muted);font-size:.74rem}.history-status{padding:2px 7px;border-radius:5px;font-size:.68rem;font-weight:750}.history-status.sent{background:var(--ok);color:#00180f}.history-status.failed{background:var(--danger);color:#fff}.history-empty{color:var(--muted);font-size:.8rem;padding:6px 0}
     @media(max-width:380px){body{padding:10px}.card{padding:15px}.metric-grid{gap:6px}.metric-item{padding:8px}}
   </style>
 </head>
@@ -123,6 +124,7 @@
   const deviceLastSeenAt = {};
   const deviceLastKey = {}; // identifies the last reading received, to tell fresh data from old data stored in Firebase
   const telemetryUnsubs = {};
+  const historyUnsubs = {};
   const alertState = {};
   const lastHandledEventId = {};
 
@@ -329,6 +331,7 @@
   function teardownListeners() {
     if (unsubDevices) { unsubDevices(); unsubDevices = null; }
     Object.keys(telemetryUnsubs).forEach(mac => { telemetryUnsubs[mac](); delete telemetryUnsubs[mac]; });
+    Object.keys(historyUnsubs).forEach(mac => { historyUnsubs[mac](); delete historyUnsubs[mac]; });
     Object.keys(alertState).forEach(mac => delete alertState[mac]);
     knownDeviceMacs = [];
   }
@@ -494,7 +497,15 @@
     st.rendered = null;
     updateAlertUI(mac);
 
-    await sendViaFast2Sms(cleanPhone, buildSmsText(mac, data));
+    const smsText = buildSmsText(mac, data);
+    const histBase = { name: meta.name || "Unnamed", mac, phone: cleanPhone, reason: getEmergencyReason(data), message: smsText, eventId: eventId || "", at: Date.now() };
+    try {
+      await sendViaFast2Sms(cleanPhone, smsText);
+    } catch (err) {
+      logHistory(mac, { ...histBase, status: "failed", error: err?.message || "SMS could not be sent." });
+      throw err;
+    }
+    logHistory(mac, { ...histBase, status: "sent" });
 
     st.status = "sent";
     st.sentAt = new Date();
@@ -631,12 +642,45 @@
     });
   }, 150);
 
+  // ---------- Emergency message history (stored per wearer under the signed-in user) ----------
+  function logHistory(mac, entry) {
+    if (!currentUser) return;
+    const key = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
+    set(ref(db, `Users/${currentUser.uid}/history/${mac}/${key}`), entry)
+      .catch(err => console.warn("Could not save message history:", err));
+  }
+
+  function subscribeToHistory(mac) {
+    if (!currentUser) return;
+    const id = safeIdOf(mac);
+    historyUnsubs[mac] = onValue(ref(db, `Users/${currentUser.uid}/history/${mac}`), snapshot => {
+      const list = document.getElementById(`hist-list-${id}`);
+      const sum = document.getElementById(`hist-sum-${id}`);
+      if (!list || !sum) return;
+      const entries = Object.values(snapshot.val() || {}).sort((a, b) => (Number(b.at) || 0) - (Number(a.at) || 0));
+      const name = (deviceMeta[mac] && deviceMeta[mac].name) || "Unnamed";
+      sum.innerText = `Emergency message history - ${name} (${entries.length})`;
+      if (!entries.length) { list.innerHTML = '<div class="history-empty">No emergency messages yet.</div>'; return; }
+      list.innerHTML = entries.slice(0, 50).map(e => {
+        const when = Number(e.at) ? new Date(Number(e.at)).toLocaleString() : "";
+        const failed = e.status === "failed";
+        return `<div class="history-item">
+          <div class="history-top"><span class="history-time">${esc(when)}</span><span class="history-status ${failed ? "failed" : "sent"}">${failed ? "FAILED" : "SENT"}</span></div>
+          <div><strong>${esc(e.reason || "Emergency Detected")}</strong></div>
+          <div class="small-muted">SMS: "${esc(e.message || "")}" to ${esc(e.phone || "")}</div>
+          ${failed && e.error ? `<div class="small-muted" style="color:var(--warn)">${esc(e.error)}</div>` : ""}
+        </div>`;
+      }).join("");
+    }, error => console.warn("History listener failed:", mac, error));
+  }
+
   function attachUserDeviceListeners(uid) {
     teardownListeners();
     unsubDevices = onValue(ref(db, `Users/${uid}/devices`), snapshot => {
       const container = document.getElementById("device-container");
       const devices = snapshot.val();
       Object.keys(telemetryUnsubs).forEach(mac => { telemetryUnsubs[mac](); delete telemetryUnsubs[mac]; });
+      Object.keys(historyUnsubs).forEach(mac => { historyUnsubs[mac](); delete historyUnsubs[mac]; });
       if (!devices) {
         knownDeviceMacs = [];
         container.innerHTML = '<p class="empty">No monitors linked. Scan a QR code or enter a MAC address to start.</p>';
@@ -649,6 +693,7 @@
         deviceMeta[mac] = typeof raw === "string" ? { name: raw, contact: "" } : { name: raw.name || "Unnamed", contact: raw.contact || "" };
         renderDeviceCard(mac, deviceMeta[mac]);
         subscribeToTelemetry(mac);
+        subscribeToHistory(mac);
       });
     }, error => console.error("User device listener failed:", error));
   }
@@ -681,7 +726,11 @@
         </div>
         <button class="link-btn" onclick="editContact('${esc(mac)}')">Edit</button>
       </div>
-      <div id="alert-${id}" class="alert-box"></div>`;
+      <div id="alert-${id}" class="alert-box"></div>
+      <details class="history" id="hist-det-${id}">
+        <summary id="hist-sum-${id}">Emergency message history - ${esc(meta.name)} (0)</summary>
+        <div id="hist-list-${id}" class="history-list"><div class="history-empty">No emergency messages yet.</div></div>
+      </details>`;
     document.getElementById("device-container").appendChild(card);
     if (alertState[mac]) alertState[mac].rendered = null;
     updateAlertUI(mac);
