@@ -111,7 +111,7 @@
   const SPO2_WINDOW = 8;       // number of recent valid readings used for the smoothed (median) value
   // DEMO MODE (off by default): when true and the sensor sends no valid SpO2, a SIMULATED value is shown,
   // always labelled "(simulated)". It is for demos only and is never used for alerts or SMS.
-  const DEMO_SPO2 = false;
+  const DEMO_SPO2 = true;
   const SPO2_MAX_JUMP = 5;     // a new reading further than this from the recent median is treated as noise
 
   const app = initializeApp(firebaseConfig);
