@@ -107,8 +107,9 @@
   const ALERT_COUNTDOWN_MS = 10000;
   const DEFAULT_COUNTRY_CODE = "+91";
   const STALE_THRESHOLD_MS = 30000;
-  const SPO2_HOLD_MS = 15000;  // a valid SpO2 reading stays usable for this long if the sensor briefly drops out
-  const SPO2_WINDOW = 5;       // number of recent valid readings used for the smoothed (median) value
+  const SPO2_HOLD_MS = 30000;  // readings stay usable for this long, so brief dropouts of the sensor do not blank the value
+  const SPO2_WINDOW = 8;       // number of recent valid readings used for the smoothed (median) value
+  const SPO2_MAX_JUMP = 5;     // a new reading further than this from the recent median is treated as noise
 
   const app = initializeApp(firebaseConfig);
   const auth = getAuth(app);
@@ -151,7 +152,7 @@
   }
 
   // Valid SpO2 is a percentage; sensors send 0 / -999 / 255 etc. when the reading is not valid
-  const isValidSpo2 = n => Number.isFinite(n) && n >= 50 && n <= 100;
+  const isValidSpo2 = n => Number.isFinite(n) && n >= 70 && n <= 100; // below 70 is sensor noise on a living wearer
 
   // Finds SpO2 under any key spelling (spo2, SpO2, spo2_value, oxygen, bloodOxygen, ...),
   // also inside nested objects such as { vitals: { spo2: 97 } }. Returns 0 if none is valid.
@@ -185,15 +186,21 @@
   function getSpo2Held(mac, data, heartRate) {
     const now = Date.now();
     if (!(heartRate > 0)) { delete spo2History[mac]; return 0; }
-    const hist = (spo2History[mac] || []).filter(r => now - r.at <= SPO2_HOLD_MS);
+    const median = arr => {
+      const a = arr.map(r => r.v).sort((x, y) => x - y);
+      const m = Math.floor(a.length / 2);
+      return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+    };
+    let hist = (spo2History[mac] || []).filter(r => now - r.at <= SPO2_HOLD_MS);
     const v = getSpo2(data);
-    if (v > 0) hist.push({ v, at: now });
+    if (v > 0) {
+      // Spikes: once a few readings exist, ignore a reading that jumps far from the recent median
+      const isSpike = hist.length >= 3 && Math.abs(v - median(hist)) > SPO2_MAX_JUMP;
+      if (!isSpike) hist.push({ v, at: now });
+    }
     spo2History[mac] = hist.slice(-SPO2_WINDOW);
     if (!spo2History[mac].length) return 0;
-    const sorted = spo2History[mac].map(r => r.v).sort((a, b) => a - b);
-    const mid = Math.floor(sorted.length / 2);
-    const median = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-    return Math.round(median);
+    return Math.round(median(spo2History[mac]));
   }
 
   // Location comes from the Wi-Fi network the device is connected to.
