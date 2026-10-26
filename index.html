@@ -271,23 +271,33 @@
     return `${bpm} · ${ox}`;
   }
 
-  function isEmergencyCondition(data) {
-    if (!data) return false;
-    const t = Number(data.temperature) || 0;
-    const hr = Number(data.heartRate) || 0;
-    const risk = String(data.riskLevel || "").toUpperCase();
-    const isHeatEmergency = (t >= 38.5 && hr >= 120) || t >= 40.0;
-    const isFallAlert = Boolean(data.fallAlertActive || data.fallDetected || data.emergencyAlertActive);
-    return isHeatEmergency || isFallAlert || risk === "EMERGENCY";
+  // Sunstroke needs BOTH a high body temperature AND an elevated heart rate,
+  // and both must be real, valid measurements (sensor reading present and in a plausible range).
+  // A missing/zero/out-of-range value (no finger on sensor, probe not ready) can never trigger sunstroke.
+  const SUN_TEMP_C = 38.5;
+  const SUN_HR_BPM = 120;
+  const isValidTemp = t => Number.isFinite(t) && t >= 30 && t <= 45;
+  const isValidHr = h => Number.isFinite(h) && h >= 30 && h <= 220;
+  function isSunstrokeCondition(temperature, heartRate) {
+    const t = Number(temperature);
+    const hr = Number(heartRate);
+    if (!isValidTemp(t) || !isValidHr(hr)) return false;
+    return t >= SUN_TEMP_C && hr >= SUN_HR_BPM;
   }
 
   function getAlertKinds(data) {
-    const t = Number(data?.temperature) || 0;
-    const hr = Number(data?.heartRate) || 0;
     return {
       fall: Boolean(data?.fallDetected || data?.fallAlertActive),
-      sun: (t >= 38.5 && hr >= 120) || t >= 40.0
+      sun: isSunstrokeCondition(data?.temperature, data?.heartRate)
     };
+  }
+
+  // Emergency = sunstroke (temperature + heart rate together) or a fall.
+  // Generic firmware flags (riskLevel = EMERGENCY, emergencyAlertActive) do not raise an emergency by themselves.
+  function isEmergencyCondition(data) {
+    if (!data) return false;
+    const k = getAlertKinds(data);
+    return k.sun || k.fall;
   }
 
   // Text shown on the dashboard alert
@@ -822,10 +832,13 @@
       const isFall = Boolean(data.fallDetected || data.fallAlertActive);
       document.getElementById(`fall-${id}`).innerText = data.fallAlertActive ? "ALERT WINDOW (10s)" : (data.fallDetected ? "FALL DETECTED" : "NO");
 
-      const isSunstroke = (temperature >= 38.5 && heartRate >= 120) || temperature >= 40.0;
+      const isSunstroke = isSunstrokeCondition(temperature, heartRate);
       document.getElementById(`sunstroke-${id}`).innerText = isSunstroke ? "Yes" : "No";
 
-      const risk = String(data.riskLevel || (isSunstroke || isFall ? "EMERGENCY" : "NORMAL")).toUpperCase();
+      let risk = String(data.riskLevel || (isSunstroke || isFall ? "EMERGENCY" : "NORMAL")).toUpperCase();
+      // Show EMERGENCY only for a real sunstroke or fall; a temperature-only "EMERGENCY" from the firmware is shown as WARNING
+      if (risk === "EMERGENCY" && !isSunstroke && !isFall) risk = "WARNING";
+      if (isSunstroke || isFall) risk = "EMERGENCY";
       badge.innerText = risk;
       badge.className = "device-badge " + (risk === "NORMAL" ? "badge-normal" : ((risk === "WARNING" || risk === "HIGH RISK") ? "badge-warning" : "badge-danger"));
       card.className = "device-card" + (risk === "EMERGENCY" ? " emergency" : (risk === "WARNING" || risk === "HIGH RISK" ? " warning" : ""));
