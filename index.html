@@ -109,6 +109,9 @@
   const STALE_THRESHOLD_MS = 30000;
   const SPO2_HOLD_MS = 30000;  // readings stay usable for this long, so brief dropouts of the sensor do not blank the value
   const SPO2_WINDOW = 8;       // number of recent valid readings used for the smoothed (median) value
+  // DEMO MODE (off by default): when true and the sensor sends no valid SpO2, a SIMULATED value is shown,
+  // always labelled "(simulated)". It is for demos only and is never used for alerts or SMS.
+  const DEMO_SPO2 = false;
   const SPO2_MAX_JUMP = 5;     // a new reading further than this from the recent median is treated as noise
 
   const app = initializeApp(firebaseConfig);
@@ -178,6 +181,20 @@
       }
     }
     return 0;
+  }
+
+  // Simulated SpO2 for demo mode only. It is NOT a measurement: it follows temperature and heart rate loosely.
+  const demoSpo2State = {};
+  function getSimulatedSpo2(mac, temperature, heartRate) {
+    const good = temperature >= 35 && temperature < 38 && heartRate >= 50 && heartRate <= 110;
+    const high = temperature >= 38.5 && heartRate >= 120;
+    const [lo, hi] = good ? [96, 99] : (high ? [90, 93] : [93, 96]);
+    let v = demoSpo2State[mac];
+    if (!Number.isFinite(v)) v = Math.round((lo + hi) / 2);
+    v += Math.floor(Math.random() * 3) - 1;          // drift by -1, 0 or +1
+    v = Math.min(hi, Math.max(lo, v));
+    demoSpo2State[mac] = v;
+    return v;
   }
 
   // Raw SpO2 field exactly as the device sent it (valid or not); null if the device sends no SpO2 field at all.
@@ -852,7 +869,9 @@
       const spo2 = getSpo2Held(mac, data, heartRate);
       document.getElementById(`temp-${id}`).innerText = `${temperature.toFixed(1)} °C`;
       let vitalsText = formatVitals(heartRate, spo2);
-      if (heartRate > 0 && !(spo2 > 0)) {
+      if (DEMO_SPO2 && heartRate > 0 && !(spo2 > 0) && temperature > 0) {
+        vitalsText = `${heartRate} BPM · ${getSimulatedSpo2(mac, temperature, heartRate)}% SpO2 (simulated)`;
+      } else if (heartRate > 0 && !(spo2 > 0)) {
         // Explain why SpO2 is empty: the device sent no SpO2 field, or sent a value that is not a valid reading
         const raw = getRawSpo2(data);
         vitalsText += raw === null ? " (no SpO2 data from device)" : ` (sensor sent ${raw}, invalid)`;
