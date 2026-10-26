@@ -107,6 +107,8 @@
   const ALERT_COUNTDOWN_MS = 10000;
   const DEFAULT_COUNTRY_CODE = "+91";
   const STALE_THRESHOLD_MS = 30000;
+  const SPO2_HOLD_MS = 15000;  // a valid SpO2 reading stays usable for this long if the sensor briefly drops out
+  const SPO2_WINDOW = 5;       // number of recent valid readings used for the smoothed (median) value
 
   const app = initializeApp(firebaseConfig);
   const auth = getAuth(app);
@@ -127,6 +129,7 @@
   const historyUnsubs = {};
   const alertState = {};
   const lastHandledEventId = {};
+  const spo2History = {}; // recent valid SpO2 readings per device: [{ v, at }]
 
   const safeIdOf = mac => String(mac).replace(/[^a-zA-Z0-9]/g, "");
 
@@ -147,10 +150,50 @@
     return String(phone).replace(/\D/g, "").slice(-10);
   }
 
-  // SpO2 may be stored under different key spellings by the firmware
-  function getSpo2(data) {
-    const v = Number(data?.spo2 ?? data?.spO2 ?? data?.SpO2 ?? data?.SPO2);
-    return Number.isFinite(v) ? v : 0;
+  // Valid SpO2 is a percentage; sensors send 0 / -999 / 255 etc. when the reading is not valid
+  const isValidSpo2 = n => Number.isFinite(n) && n >= 50 && n <= 100;
+
+  // Finds SpO2 under any key spelling (spo2, SpO2, spo2_value, oxygen, bloodOxygen, ...),
+  // also inside nested objects such as { vitals: { spo2: 97 } }. Returns 0 if none is valid.
+  function getSpo2(data, depth = 0) {
+    if (!data || typeof data !== "object" || depth > 2) return 0;
+    for (const [k, v] of Object.entries(data)) {
+      const key = k.toLowerCase().replace(/[^a-z0-9]/g, "");
+      if (key.includes("spo2") || key.includes("oxygen") || key === "sp02") {
+        if (v && typeof v === "object") {
+          const inner = getSpo2(v, depth + 1);
+          if (inner) return inner;
+        } else {
+          const n = Number(v);
+          if (isValidSpo2(n)) return Math.round(n);
+        }
+      }
+    }
+    // Look inside nested objects (vitals, sensor, health, ...)
+    for (const v of Object.values(data)) {
+      if (v && typeof v === "object") {
+        const inner = getSpo2(v, depth + 1);
+        if (inner) return inner;
+      }
+    }
+    return 0;
+  }
+
+  // SpO2 is only meaningful while the heart-rate sensor actually detects a pulse (finger on sensor).
+  // - No heart rate  -> no SpO2 (history cleared, so no stale value is shown)
+  // - Heart rate OK  -> median of the last few valid readings, which removes single-reading spikes
+  function getSpo2Held(mac, data, heartRate) {
+    const now = Date.now();
+    if (!(heartRate > 0)) { delete spo2History[mac]; return 0; }
+    const hist = (spo2History[mac] || []).filter(r => now - r.at <= SPO2_HOLD_MS);
+    const v = getSpo2(data);
+    if (v > 0) hist.push({ v, at: now });
+    spo2History[mac] = hist.slice(-SPO2_WINDOW);
+    if (!spo2History[mac].length) return 0;
+    const sorted = spo2History[mac].map(r => r.v).sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    const median = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+    return Math.round(median);
   }
 
   // Location comes from the Wi-Fi network the device is connected to.
@@ -369,6 +412,7 @@
     const id = safeIdOf(mac);
     const assign = (suffix, value) => { const el = document.getElementById(`${suffix}-${id}`); if (el) el.innerText = value; };
     assign("temp", "-- °C"); assign("hr", "-- BPM · -- SpO2"); assign("sunstroke", "--"); assign("fall", "--"); displayDeviceLocation(id, {}, false);
+    delete spo2History[mac];
     riskBadge.innerText = statusText;
     riskBadge.className = "device-badge";
     card.className = "device-card";
@@ -444,9 +488,6 @@
     if (isEmergency) {
       if (eventId !== lastHandledEventId[mac]) {
         lastHandledEventId[mac] = eventId;
-        const startedAt = Number(data.emergencyStartedAt || data.fallStartedAt);
-        const updatedAt = Number(data.lastUpdated);
-        const ageMs = Number.isFinite(startedAt) && Number.isFinite(updatedAt) ? Math.max(0, updatedAt - startedAt) * 1000 : 0;
         startAlertCountdown(mac, "emergency", eventId);
       }
     } else if (!["sending", "sent", "checking", "failed"].includes(st.status)) {
@@ -763,6 +804,7 @@
       if (!isDatabaseConnected || !data) { blankDeviceCard(mac, card, badge, "NO SIGNAL"); return; }
 
       lastData[mac] = data;
+      console.log("Telemetry:", mac, JSON.stringify(data)); // helpful to check the exact key names the ESP32 writes
 
       // Firebase keeps the last values the ESP wrote, so they arrive as soon as the page loads.
       // The device counts as connected only when a NEW reading arrives after that.
@@ -773,7 +815,7 @@
 
       const temperature = Number(data.temperature) || 0;
       const heartRate = Number(data.heartRate) || 0;
-      const spo2 = getSpo2(data);
+      const spo2 = getSpo2Held(mac, data, heartRate);
       document.getElementById(`temp-${id}`).innerText = `${temperature.toFixed(1)} °C`;
       document.getElementById(`hr-${id}`).innerText = formatVitals(heartRate, spo2);
 
@@ -815,7 +857,7 @@
     const meta = deviceMeta[mac] || {};
     if (!confirm(`Unlink ${meta.name || mac} from this account?`)) return;
     remove(ref(db, `Users/${currentUser.uid}/devices/${mac}`)).catch(err => alert(err.message));
-    delete deviceLastSeenAt[mac]; delete deviceLastKey[mac]; delete lastData[mac]; delete alertState[mac];
+    delete deviceLastSeenAt[mac]; delete deviceLastKey[mac]; delete lastData[mac]; delete alertState[mac]; delete spo2History[mac];
   };
 
   window.closeModal = id => { document.getElementById(id).style.display = "none"; };
