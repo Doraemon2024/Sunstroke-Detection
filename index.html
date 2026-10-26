@@ -109,7 +109,7 @@
   const STALE_THRESHOLD_MS = 30000;
   const SPO2_HOLD_MS = 30000;  // readings stay usable for this long, so brief dropouts of the sensor do not blank the value
   const SPO2_WINDOW = 8;       // number of recent valid readings used for the smoothed (median) value
-  // DEMO MODE (off by default): when true and the sensor sends no valid SpO2, a SIMULATED value is shown,
+  // DEMO MODE: when true and the sensor sends no valid SpO2, a SIMULATED value is shown,
   // always labelled "(simulated)". It is for demos only and is never used for alerts or SMS.
   const DEMO_SPO2 = true;
   const SPO2_MAX_JUMP = 5;     // a new reading further than this from the recent median is treated as noise
@@ -868,6 +868,7 @@
       const heartRate = Number(data.heartRate) || 0;
       const spo2 = getSpo2Held(mac, data, heartRate);
       document.getElementById(`temp-${id}`).innerText = `${temperature.toFixed(1)} °C`;
+
       let vitalsText = formatVitals(heartRate, spo2);
       if (DEMO_SPO2 && heartRate > 0 && !(spo2 > 0) && temperature > 0) {
         vitalsText = `${heartRate} BPM · ${getSimulatedSpo2(mac, temperature, heartRate)}% SpO2 (simulated)`;
