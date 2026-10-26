@@ -180,6 +180,23 @@
     return 0;
   }
 
+  // Raw SpO2 field exactly as the device sent it (valid or not); null if the device sends no SpO2 field at all.
+  // Used only to explain on screen why no valid SpO2 can be shown.
+  function getRawSpo2(data, depth = 0) {
+    if (!data || typeof data !== "object" || depth > 2) return null;
+    for (const [k, v] of Object.entries(data)) {
+      const key = k.toLowerCase().replace(/[^a-z0-9]/g, "");
+      if (key.includes("spo2") || key.includes("oxygen")) {
+        if (v && typeof v === "object") { const r = getRawSpo2(v, depth + 1); if (r !== null) return r; }
+        else if (v !== undefined && v !== null && v !== "") return v;
+      }
+    }
+    for (const v of Object.values(data)) {
+      if (v && typeof v === "object") { const r = getRawSpo2(v, depth + 1); if (r !== null) return r; }
+    }
+    return null;
+  }
+
   // SpO2 is only meaningful while the heart-rate sensor actually detects a pulse (finger on sensor).
   // - No heart rate  -> no SpO2 (history cleared, so no stale value is shown)
   // - Heart rate OK  -> median of the last few valid readings, which removes single-reading spikes
@@ -834,7 +851,13 @@
       const heartRate = Number(data.heartRate) || 0;
       const spo2 = getSpo2Held(mac, data, heartRate);
       document.getElementById(`temp-${id}`).innerText = `${temperature.toFixed(1)} °C`;
-      document.getElementById(`hr-${id}`).innerText = formatVitals(heartRate, spo2);
+      let vitalsText = formatVitals(heartRate, spo2);
+      if (heartRate > 0 && !(spo2 > 0)) {
+        // Explain why SpO2 is empty: the device sent no SpO2 field, or sent a value that is not a valid reading
+        const raw = getRawSpo2(data);
+        vitalsText += raw === null ? " (no SpO2 data from device)" : ` (sensor sent ${raw}, invalid)`;
+      }
+      document.getElementById(`hr-${id}`).innerText = vitalsText;
 
       const isFall = Boolean(data.fallDetected || data.fallAlertActive);
       document.getElementById(`fall-${id}`).innerText = data.fallAlertActive ? "ALERT WINDOW (10s)" : (data.fallDetected ? "FALL DETECTED" : "NO");
