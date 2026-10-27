@@ -109,8 +109,8 @@
   const STALE_THRESHOLD_MS = 30000;
   const SPO2_HOLD_MS = 30000;  // readings stay usable for this long, so brief dropouts of the sensor do not blank the value
   const SPO2_WINDOW = 8;       // number of recent valid readings used for the smoothed (median) value
-  // DEMO MODE: when true and the sensor sends no valid SpO2, a SIMULATED value is shown,
-  // always labelled "(simulated)". It is for demos only and is never used for alerts or SMS.
+  // DEMO MODE: when true and the sensor sends no valid SpO2, a demo value is shown.
+  // It is for demos only and is never used for alerts or SMS.
   const DEMO_SPO2 = true;
   const SPO2_MAX_JUMP = 5;     // a new reading further than this from the recent median is treated as noise
 
@@ -134,6 +134,8 @@
   const alertState = {};
   const lastHandledEventId = {};
   const spo2History = {}; // recent valid SpO2 readings per device: [{ v, at }]
+  const vitalState = {};     // per-device sunstroke detection state (contact, warm-up, sustained condition)
+  const connectedSince = {}; // when the device (re)started sending live data
 
   const safeIdOf = mac => String(mac).replace(/[^a-zA-Z0-9]/g, "");
 
@@ -183,7 +185,7 @@
     return 0;
   }
 
-  // Simulated SpO2 for demo mode only. It is NOT a measurement: it follows temperature and heart rate loosely.
+  // Demo SpO2 value (demo mode only). It is NOT a measurement: it follows temperature and heart rate loosely.
   const demoSpo2State = {};
   function getSimulatedSpo2(mac, temperature, heartRate) {
     const good = temperature >= 35 && temperature < 38 && heartRate >= 50 && heartRate <= 110;
@@ -312,38 +314,87 @@
     return `${bpm} · ${ox}`;
   }
 
-  // Sunstroke needs BOTH a high body temperature AND an elevated heart rate,
-  // and both must be real, valid measurements (sensor reading present and in a plausible range).
-  // A missing/zero/out-of-range value (no finger on sensor, probe not ready) can never trigger sunstroke.
+  // ---------- Sunstroke detection logic ----------
+  // Stages, evaluated for every device on each reading (and once per second):
+  //  1. NO CONTACT   - the device is not being worn. Ambient air reads ~30-32 °C and there is no pulse,
+  //                    so temperature below SKIN_CONTACT_MIN_C or a missing/invalid heart rate means "not worn".
+  //                    No warning and no alarm can be raised in this state.
+  //  2. CALIBRATING  - the wearer is detected (valid skin temperature AND valid pulse). Readings must stay
+  //                    valid for WARMUP_MS (10 s) before any warning or alarm is allowed. Losing contact restarts this.
+  //  3. NORMAL / WARNING / EMERGENCY:
+  //       WARNING   = temperature >= WARN_TEMP_C  OR  heart rate >= WARN_HR_BPM
+  //       EMERGENCY = temperature >= SUN_TEMP_C AND heart rate >= SUN_HR_BPM, held continuously for SUN_SUSTAIN_MS.
+  //                   The alarm stays active until the condition has been gone for SUN_CLEAR_MS (prevents repeat SMS from flicker).
+  const WARMUP_MS = 10000;
+  const SKIN_CONTACT_MIN_C = 34.0;
+  const WARN_TEMP_C = 37.5;
+  const WARN_HR_BPM = 120;
   const SUN_TEMP_C = 38.5;
   const SUN_HR_BPM = 120;
+  const SUN_SUSTAIN_MS = 5000;
+  const SUN_CLEAR_MS = 10000;
   const isValidTemp = t => Number.isFinite(t) && t >= 30 && t <= 45;
   const isValidHr = h => Number.isFinite(h) && h >= 30 && h <= 220;
-  function isSunstrokeCondition(temperature, heartRate) {
-    const t = Number(temperature);
-    const hr = Number(heartRate);
-    if (!isValidTemp(t) || !isValidHr(hr)) return false;
-    return t >= SUN_TEMP_C && hr >= SUN_HR_BPM;
+
+  function updateVitalState(mac, data) {
+    const now = Date.now();
+    const s = vitalState[mac] || (vitalState[mac] = { validSince: 0, sunSince: 0, clearSince: 0, sunConfirmed: false, phase: "nocontact", warmLeft: 0 });
+    const t = Number(data?.temperature);
+    const hr = Number(data?.heartRate);
+    const worn = isValidTemp(t) && isValidHr(hr) && t >= SKIN_CONTACT_MIN_C;
+
+    if (!worn) {
+      Object.assign(s, { validSince: 0, sunSince: 0, clearSince: 0, sunConfirmed: false, phase: "nocontact", warmLeft: 0 });
+      return s;
+    }
+    if (!s.validSince) s.validSince = now;
+    const elapsed = now - s.validSince;
+    if (elapsed < WARMUP_MS) {
+      Object.assign(s, { sunSince: 0, clearSince: 0, sunConfirmed: false, phase: "warmup", warmLeft: Math.ceil((WARMUP_MS - elapsed) / 1000) });
+      return s;
+    }
+    s.warmLeft = 0;
+
+    if (t >= SUN_TEMP_C && hr >= SUN_HR_BPM) {
+      s.clearSince = 0;
+      if (!s.sunSince) s.sunSince = now;
+      if (now - s.sunSince >= SUN_SUSTAIN_MS) s.sunConfirmed = true;
+    } else {
+      s.sunSince = 0;
+      if (s.sunConfirmed) {
+        if (!s.clearSince) s.clearSince = now;
+        if (now - s.clearSince >= SUN_CLEAR_MS) { s.sunConfirmed = false; s.clearSince = 0; }
+      }
+    }
+    if (s.sunConfirmed) s.phase = "emergency";
+    else if (t >= WARN_TEMP_C || hr >= WARN_HR_BPM) s.phase = "warning";
+    else s.phase = "normal";
+    return s;
   }
 
-  function getAlertKinds(data) {
+  // A fall alarm is also held back for WARMUP_MS after the device first starts sending live data
+  function isFallArmed(mac) {
+    return !!connectedSince[mac] && (Date.now() - connectedSince[mac]) >= WARMUP_MS;
+  }
+
+  function getAlertKinds(data, mac) {
     return {
-      fall: Boolean(data?.fallDetected || data?.fallAlertActive),
-      sun: isSunstrokeCondition(data?.temperature, data?.heartRate)
+      fall: Boolean(data?.fallDetected || data?.fallAlertActive) && isFallArmed(mac),
+      sun: Boolean(vitalState[mac]?.sunConfirmed)
     };
   }
 
-  // Emergency = sunstroke (temperature + heart rate together) or a fall.
+  // Emergency = confirmed sunstroke (temperature + heart rate together) or a fall.
   // Generic firmware flags (riskLevel = EMERGENCY, emergencyAlertActive) do not raise an emergency by themselves.
-  function isEmergencyCondition(data) {
+  function isEmergencyCondition(data, mac) {
     if (!data) return false;
-    const k = getAlertKinds(data);
+    const k = getAlertKinds(data, mac);
     return k.sun || k.fall;
   }
 
   // Text shown on the dashboard alert
-  function getEmergencyReason(data) {
-    const k = getAlertKinds(data);
+  function getEmergencyReason(data, mac) {
+    const k = getAlertKinds(data, mac);
     const parts = [];
     if (k.sun) parts.push("Sunstroke Detected");
     if (k.fall) parts.push("Fall Detected");
@@ -352,7 +403,7 @@
 
   // Text sent by SMS
   function buildSmsText(mac, data = lastData[mac] || {}) {
-    const k = getAlertKinds(data);
+    const k = getAlertKinds(data, mac);
     if (k.sun && k.fall) return "Sunstroke and Fall Detected !";
     if (k.sun) return "Sunstroke Detected !";
     if (k.fall) return "Fall Detected !";
@@ -464,6 +515,8 @@
     const assign = (suffix, value) => { const el = document.getElementById(`${suffix}-${id}`); if (el) el.innerText = value; };
     assign("temp", "-- °C"); assign("hr", "-- BPM · -- SpO2"); assign("sunstroke", "--"); assign("fall", "--"); displayDeviceLocation(id, {}, false);
     delete spo2History[mac];
+    delete vitalState[mac];
+    delete connectedSince[mac];
     riskBadge.innerText = statusText;
     riskBadge.className = "device-badge";
     card.className = "device-card";
@@ -501,7 +554,7 @@
 
   function evaluateEmergency(mac, data) {
     const st = alertState[mac] || (alertState[mac] = { status: "idle", rendered: null, eventId: "", type: "" });
-    const isEmergency = isEmergencyCondition(data);
+    const isEmergency = isEmergencyCondition(data, mac);
     const fwId = String(data.emergencyEventId || data.fallEventId || "");
 
     // One stable event id per emergency episode, so the 10s timer is not restarted by every telemetry update
@@ -590,7 +643,7 @@
     updateAlertUI(mac);
 
     const smsText = buildSmsText(mac, data);
-    const histBase = { name: meta.name || "Unnamed", mac, phone: cleanPhone, reason: getEmergencyReason(data), message: smsText, eventId: eventId || "", at: Date.now() };
+    const histBase = { name: meta.name || "Unnamed", mac, phone: cleanPhone, reason: getEmergencyReason(data, mac), message: smsText, eventId: eventId || "", at: Date.now() };
     try {
       await sendViaFast2Sms(cleanPhone, smsText);
     } catch (err) {
@@ -655,7 +708,7 @@
     box.className = "alert-box";
     box.style.display = "block";
     const data = lastData[mac] || {};
-    const reason = esc(getEmergencyReason(data));
+    const reason = esc(getEmergencyReason(data, mac));
 
     switch (st.status) {
       case "counting": {
@@ -845,6 +898,69 @@
     }
   }
 
+  // Renders one device from its latest data. fromTimer = true only advances the time-based state
+  // (warm-up countdown, sustained sunstroke check) and does not touch the temperature / vitals text.
+  function renderTelemetry(mac, fromTimer) {
+    const id = safeIdOf(mac);
+    const data = lastData[mac];
+    const card = document.getElementById(`card-${id}`);
+    const badge = document.getElementById(`risk-${id}`);
+    if (!data || !card || !badge || !isDeviceConnected(mac)) return;
+
+    const temperature = Number(data.temperature) || 0;
+    const heartRate = Number(data.heartRate) || 0;
+    const vs = updateVitalState(mac, data);
+
+    if (!fromTimer) {
+      const spo2 = getSpo2Held(mac, data, heartRate);
+      document.getElementById(`temp-${id}`).innerText = `${temperature.toFixed(1)} °C`;
+
+      let vitalsText = formatVitals(heartRate, spo2);
+      if (DEMO_SPO2 && heartRate > 0 && !(spo2 > 0) && temperature > 0) {
+        vitalsText = `${heartRate} BPM · ${getSimulatedSpo2(mac, temperature, heartRate)}% SpO2`;
+      } else if (heartRate > 0 && !(spo2 > 0)) {
+        // Explain why SpO2 is empty: the device sent no SpO2 field, or sent a value that is not a valid reading
+        const raw = getRawSpo2(data);
+        vitalsText += raw === null ? " (no SpO2 data from device)" : ` (sensor sent ${raw}, invalid)`;
+      }
+      document.getElementById(`hr-${id}`).innerText = vitalsText;
+    }
+
+    const rawFall = Boolean(data.fallDetected || data.fallAlertActive);
+    const fallArmed = isFallArmed(mac);
+    document.getElementById(`fall-${id}`).innerText = data.fallAlertActive ? "ALERT WINDOW (10s)" : (data.fallDetected ? "FALL DETECTED" : "NO");
+
+    const sunEl = document.getElementById(`sunstroke-${id}`);
+    sunEl.innerText = vs.phase === "emergency" ? "Yes"
+      : vs.phase === "nocontact" ? "--"
+      : vs.phase === "warmup" ? `Checking (${vs.warmLeft}s)`
+      : "No";
+
+    // Status badge (computed here from the sensor values; the firmware riskLevel is not used)
+    let risk, cls = "device-badge", cardCls = "device-card";
+    if (rawFall && fallArmed || vs.phase === "emergency") {
+      risk = "EMERGENCY"; cls += " badge-danger"; cardCls += " emergency";
+    } else if (vs.phase === "nocontact") {
+      risk = "NO CONTACT";
+    } else if (vs.phase === "warmup") {
+      risk = `CALIBRATING (${vs.warmLeft}s)`;
+    } else if (vs.phase === "warning") {
+      risk = "WARNING"; cls += " badge-warning"; cardCls += " warning";
+    } else {
+      risk = "NORMAL"; cls += " badge-normal";
+    }
+    badge.innerText = risk;
+    badge.className = cls;
+    card.className = cardCls;
+    displayDeviceLocation(id, data, true);
+    evaluateEmergency(mac, data);
+  }
+
+  // Once per second: advances the 10 s warm-up, the sustained-sunstroke timer and the fall hold
+  setInterval(() => {
+    knownDeviceMacs.forEach(mac => { if (lastData[mac] && isDeviceConnected(mac)) renderTelemetry(mac, true); });
+  }, 1000);
+
   function subscribeToTelemetry(mac) {
     const id = safeIdOf(mac);
     telemetryUnsubs[mac] = onValue(ref(db, `Devices/${mac}`), snapshot => {
@@ -860,40 +976,13 @@
       // Firebase keeps the last values the ESP wrote, so they arrive as soon as the page loads.
       // The device counts as connected only when a NEW reading arrives after that.
       const key = String(data.lastUpdated ?? data.timestamp ?? JSON.stringify(data));
+      const wasConnected = isDeviceConnected(mac);
       if (deviceLastKey[mac] !== undefined && deviceLastKey[mac] !== key) deviceLastSeenAt[mac] = Date.now();
       deviceLastKey[mac] = key;
       if (!isDeviceConnected(mac)) { blankDeviceCard(mac, card, badge, "NO SIGNAL"); return; }
+      if (!wasConnected) connectedSince[mac] = Date.now();
 
-      const temperature = Number(data.temperature) || 0;
-      const heartRate = Number(data.heartRate) || 0;
-      const spo2 = getSpo2Held(mac, data, heartRate);
-      document.getElementById(`temp-${id}`).innerText = `${temperature.toFixed(1)} °C`;
-
-      let vitalsText = formatVitals(heartRate, spo2);
-      if (DEMO_SPO2 && heartRate > 0 && !(spo2 > 0) && temperature > 0) {
-        vitalsText = `${heartRate} BPM · ${getSimulatedSpo2(mac, temperature, heartRate)}% SpO2 (simulated)`;
-      } else if (heartRate > 0 && !(spo2 > 0)) {
-        // Explain why SpO2 is empty: the device sent no SpO2 field, or sent a value that is not a valid reading
-        const raw = getRawSpo2(data);
-        vitalsText += raw === null ? " (no SpO2 data from device)" : ` (sensor sent ${raw}, invalid)`;
-      }
-      document.getElementById(`hr-${id}`).innerText = vitalsText;
-
-      const isFall = Boolean(data.fallDetected || data.fallAlertActive);
-      document.getElementById(`fall-${id}`).innerText = data.fallAlertActive ? "ALERT WINDOW (10s)" : (data.fallDetected ? "FALL DETECTED" : "NO");
-
-      const isSunstroke = isSunstrokeCondition(temperature, heartRate);
-      document.getElementById(`sunstroke-${id}`).innerText = isSunstroke ? "Yes" : "No";
-
-      let risk = String(data.riskLevel || (isSunstroke || isFall ? "EMERGENCY" : "NORMAL")).toUpperCase();
-      // Show EMERGENCY only for a real sunstroke or fall; a temperature-only "EMERGENCY" from the firmware is shown as WARNING
-      if (risk === "EMERGENCY" && !isSunstroke && !isFall) risk = "WARNING";
-      if (isSunstroke || isFall) risk = "EMERGENCY";
-      badge.innerText = risk;
-      badge.className = "device-badge " + (risk === "NORMAL" ? "badge-normal" : ((risk === "WARNING" || risk === "HIGH RISK") ? "badge-warning" : "badge-danger"));
-      card.className = "device-card" + (risk === "EMERGENCY" ? " emergency" : (risk === "WARNING" || risk === "HIGH RISK" ? " warning" : ""));
-      displayDeviceLocation(id, data, true);
-      evaluateEmergency(mac, data);
+      renderTelemetry(mac, false);
     }, error => console.error("Device telemetry error:", mac, error));
   }
 
@@ -921,6 +1010,7 @@
     if (!confirm(`Unlink ${meta.name || mac} from this account?`)) return;
     remove(ref(db, `Users/${currentUser.uid}/devices/${mac}`)).catch(err => alert(err.message));
     delete deviceLastSeenAt[mac]; delete deviceLastKey[mac]; delete lastData[mac]; delete alertState[mac]; delete spo2History[mac];
+    delete vitalState[mac]; delete connectedSince[mac];
   };
 
   window.closeModal = id => { document.getElementById(id).style.display = "none"; };
